@@ -1,0 +1,7 @@
+playwright
+Pillow
+python-dotenv
+rapidocr
+onnxruntime
+pypdf
+img2pdf

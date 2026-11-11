@@ -1,0 +1,4 @@
+interface:
+  display_name: "XJTLUPaperForge"
+  short_description: "打开西浦试卷本地工作台，输入课程编号并导出经过完整度与清晰度校验的 PDF"
+  default_prompt: "使用 $xjtlu-paperforge 打开本地试卷工作台，让我输入想要的课程编号。"

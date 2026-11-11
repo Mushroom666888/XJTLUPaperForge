@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="paperforge-token" content="__APP_TOKEN__">
+  <title>XJTLUPaperForge</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="XJTLUPaperForge 首页"><span class="brand-icon">P<span>F</span></span><span>XJTLU<span class="brand-light">PaperForge</span></span></a>
+      <div class="header-actions"><span class="local-badge"><i></i> 本地运行</span><button id="quit" class="icon-button" aria-label="退出应用" title="退出应用">×</button></div>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow">YOUR PAPERS, IN ONE PLACE</p>
+        <h1>想找哪门课的 <em>Paper？</em></h1>
+        <p class="subtitle">输入课程编号，历年试卷自动归档。每一份 PDF，都经过完整度与清晰度校验。</p>
+      </section>
+      <div class="workspace">
+        <section class="card composer" aria-labelledby="form-title">
+          <div class="card-heading"><span class="section-number">01</span><h2 id="form-title">选择课程</h2><span class="muted small">支持多门课程</span></div>
+          <form id="export-form">
+            <label class="field-label" for="courses">课程编号</label>
+            <input id="courses" name="courses" placeholder="例如 ABC123、DEF456" autocomplete="off" spellcheck="false" aria-describedby="course-help" maxlength="300" required>
+            <p class="field-help" id="course-help">用空格或逗号分隔，最多 20 门。课程编号会自动转为大写。</p>
+            <div id="course-chips" class="chips" aria-live="polite"></div>
+            <fieldset class="quality"><legend>PDF 清晰度</legend><div class="quality-options">
+              <label class="quality-option"><input type="radio" name="quality" value="2" checked><span><strong>标准 <small>192 DPI</small></strong><span>清晰阅读，体积适中</span></span><i></i></label>
+              <label class="quality-option"><input type="radio" name="quality" value="3.125"><span><strong>精细 <small>300 DPI</small></strong><span>更多细节，耗时更长</span></span><i></i></label>
+            </div></fieldset>
+            <div id="error" class="error" role="alert" hidden></div>
+            <button id="submit" class="primary" type="submit"><span>开始整理试卷</span><span aria-hidden="true">↗</span></button>
+            <p class="login-hint">首次使用会打开学校登录页面，登录后自动继续。</p>
+          </form>
+          <div class="account"><div><span id="account-dot" class="status-dot"></span><span id="account-label">学校账号 · 按需连接</span></div><button id="login" class="text-button">连接账号 <span aria-hidden="true">→</span></button></div>
+        </section>
+        <section class="card activity" aria-labelledby="activity-title">
+          <div class="card-heading"><span class="section-number">02</span><h2 id="activity-title">整理进度</h2><span id="phase" class="phase">准备就绪</span></div>
+          <div id="empty" class="empty-state">
+            <div class="paper-stack" aria-hidden="true"><div class="back-paper"></div><div class="front-paper"><span>PDF</span><i></i><i></i><i></i><b>✓</b></div></div>
+            <h3>下一份试卷，井井有条。</h3><p>添加课程后，查看搜索、导出和校验进度。</p>
+          </div>
+          <div id="job" hidden>
+            <p id="message" class="job-message" aria-live="polite"></p>
+            <ol class="steps"><li id="step-login">连接学校</li><li id="step-search">搜索与导出</li><li id="step-done">完成校验</li></ol>
+            <progress id="progress" max="100" value="0" aria-label="整体进度"></progress>
+            <div id="results" class="results"></div>
+          </div>
+          <div class="output"><div><span class="field-label">保存位置</span><p id="output-path" title="输出文件夹">正在读取…</p></div><button id="open-output" class="folder-button" aria-label="打开输出文件夹" title="打开输出文件夹">↗</button></div>
+        </section>
+      </div>
+      <footer class="footnote"><span><i></i> 课程分文件夹 · 仅输出 PDF · 文件留在本机</span><span>独立开源工具，与学校无隶属关系</span></footer>
+    </main>
+  </div>
+</body>
+</html>
