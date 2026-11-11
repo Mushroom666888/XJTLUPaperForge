@@ -31,6 +31,7 @@ from browser_session import (
     terminate_pid_tree,
 )
 from capture_canvas import BASE_URL, SPECIAL_PROFILE, login, _is_logged_in
+from task_events import emit, check_cancelled
 
 
 def _connect(playwright, port):
@@ -50,6 +51,8 @@ def _check_logged_in(page):
 
 
 def do_login():
+    check_cancelled()
+    emit('phase', phase='login')
     info = read_session()
     if info:
         # 已有常驻实例：校验登录态，避免重复启动

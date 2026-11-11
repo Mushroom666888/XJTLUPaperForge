@@ -10,6 +10,8 @@ from capture_canvas import extract_canvas_pages
 from merge_png_to_pdf import merge_png_to_pdf
 from pdf_quality import inspect_png_pages, verify_pdf
 from settings import OUTPUT_ROOT, WORK_ROOT
+from output_preferences import course_directory
+from task_events import check_cancelled, emit
 
 
 def normalize_course_code(course_code):
@@ -28,7 +30,7 @@ def paper_pdf_path(course_code, paper_name):
     code = normalize_course_code(course_code)
     if not re.fullmatch(r"[A-Za-z0-9_-]+", paper_name):
         raise ValueError("试卷文件名包含无效字符。")
-    return OUTPUT_ROOT / code / f"{paper_name}.pdf"
+    return course_directory(OUTPUT_ROOT, code) / f"{paper_name}.pdf"
 
 
 def pdf_is_complete(path, expected_pages, min_dpi=0):
@@ -45,11 +47,14 @@ def pdf_is_complete(path, expected_pages, min_dpi=0):
 def save_paper_pdf(viewer, course_code, paper_name, scale, expected_pages):
     """Publish only a complete PDF; failures leave any old PDF unchanged."""
     validate_scale(scale)
+    check_cancelled()
     output_file = paper_pdf_path(course_code, paper_name)
     dpi = 96 * scale
     if pdf_is_complete(output_file, expected_pages, min_dpi=dpi):
         print(f"  ⏭ 已有完整 PDF（{expected_pages} 页）: {output_file.name}")
         return str(output_file)
+    if output_file.exists():
+        raise FileExistsError('已有文件不满足本次页数或清晰度要求；请更换保存位置或移走旧文件。')
 
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="paper-", dir=WORK_ROOT) as scratch:
@@ -57,11 +62,20 @@ def save_paper_pdf(viewer, course_code, paper_name, scale, expected_pages):
         if count != expected_pages:
             raise RuntimeError(f"页数不完整：{count}/{expected_pages}，未生成最终 PDF。")
         records = inspect_png_pages(scratch, expected_pages)
-        pending = Path(scratch) / "complete.pdf"
-        merge_png_to_pdf(scratch, str(pending), dpi=dpi)
-        verify_pdf(pending, expected_pages, min_dpi=dpi, source_records=records)
+        check_cancelled()
+        emit('phase', phase='validating')
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(pending, output_file)
+        # Stage on the destination volume: C: capture storage may export to D: or USB.
+        with tempfile.TemporaryDirectory(prefix='.paperforge-', dir=output_file.parent) as staging:
+            pending = Path(staging) / 'complete.pdf'
+            merge_png_to_pdf(scratch, str(pending), dpi=dpi)
+            verify_pdf(pending, expected_pages, min_dpi=dpi, source_records=records)
+            check_cancelled()
+            paper_pdf_path(course_code, paper_name)  # Recheck junction containment before publication.
+            if os.name == 'nt':
+                os.rename(pending, output_file)  # Windows rename fails if another file won the race.
+            else:
+                os.link(pending, output_file)  # Atomic no-overwrite publication on POSIX.
 
     print(f"  PDF 已保存: {output_file}")
     return str(output_file)

@@ -15,6 +15,8 @@ from urllib.request import urlopen
 import webbrowser
 
 from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
+from output_preferences import OutputPreferences, choose_directory, validate_directory, course_directory
+from task_events import PREFIX, TaskCancelled
 
 APP_NAME = 'XJTLUPaperForge'
 COURSE_RE = re.compile(r'[A-Z]{3}\d{3}[A-Z]{0,2}')
@@ -41,6 +43,8 @@ def validate_export(payload):
 def public_error(line):
     if '封存' in line or 'embargoed' in line.lower():
         return '网站将部分试卷封存，当前没有阅读入口。'
+    if '已有文件' in line or 'File exists' in line:
+        return '已有文件不满足本次要求，已保留原文件。请更换保存位置或自行移走旧文件后重试。'
     if '分辨率' in line:
         return '页面未达到所选清晰度，已保留原有文件。'
     if any(word in line for word in ('空白', '重复', '页数', '像素')):
@@ -53,11 +57,19 @@ def public_error(line):
 
 
 class Jobs:
-    def __init__(self, runner=None):
+    def __init__(self, runner=None, preferences=None, picker=None):
         self.lock = threading.RLock()
         self.runner = runner or self.run_script
-        self.state = {'active': False, 'phase': 'idle', 'message': '输入课程编号，开始整理试卷。',
-                      'login_ready': False, 'results': [], 'output_dir': str(OUTPUT_ROOT), 'finished': 0}
+        self.preferences = preferences or OutputPreferences()
+        self.picker = picker or choose_directory
+        self.cancel_requested = threading.Event()
+        self.cancel_file = None
+        self.state = {'active': False, 'phase': 'idle', 'message': '想找哪门课？我来帮你整理。',
+                      'login_ready': False, 'results': [], 'output_dir': str(self.preferences.path),
+                      'default_output_dir': str(self.preferences.default), 'job_output_dir': None,
+                      'finished': 0, 'folder_busy': False, 'warning': self.preferences.warning,
+                      'current_course': '', 'current_file': '', 'pages_done': 0, 'pages_total': None,
+                      'retrying': False, 'kind': None}
 
     def snapshot(self):
         with self.lock:
@@ -67,23 +79,61 @@ class Jobs:
         with self.lock:
             self.state.update(values)
 
+    def change_output(self, reset=False):
+        with self.lock:
+            if self.state['active'] or self.state['folder_busy']:
+                raise RuntimeError('任务或文件夹选择正在进行，请稍候。')
+            self.state['folder_busy'] = True
+        try:
+            selected = str(self.preferences.default) if reset else self.picker(self.preferences.path)
+            if selected is None:
+                return False
+            path = self.preferences.save(selected, create=reset)
+            self.update(output_dir=str(path), warning='')
+            return True
+        finally:
+            self.update(folder_busy=False)
+
     def start(self, kind, courses=None, scale=2):
         with self.lock:
-            if self.state['active']:
-                raise RuntimeError('已有任务正在进行，请等它完成。')
-            self.state.update(active=True, phase='login', finished=0,
+            if self.state['active'] or self.state['folder_busy']:
+                raise RuntimeError('已有任务或文件夹选择正在进行，请稍候。')
+            output = validate_directory(self.preferences.path,
+                                        create=self.preferences.path == self.preferences.default)
+            self.cancel_requested.clear()
+            marker_dir = self.preferences.file.parent / 'work'
+            marker_dir.mkdir(parents=True, exist_ok=True)
+            self.cancel_file = marker_dir / ('cancel-' + secrets.token_hex(12))
+            self.state.update(active=True, phase='starting', finished=0, kind=kind,
+                              current_course='', current_file='', pages_done=0, pages_total=None,
+                              retrying=False, job_output_dir=str(output), output_dir=str(output),
                               message='正在连接学校；如弹出登录页面，请在 Chrome 中完成登录。')
-            if kind == 'export':
-                self.state['results'] = [dict(course=code, status='pending', expected=None,
-                                             papers=[], errors=[], message='等待处理') for code in courses]
-            thread = threading.Thread(target=self.work, args=(kind, courses or [], scale), daemon=True)
-            thread.start()
+            self.state['results'] = [dict(course=code, status='pending', expected=None,
+                                         papers=[], errors=[], message='等待处理') for code in (courses or [])]
+            threading.Thread(target=self.work, args=(kind, courses or [], scale), daemon=True).start()
+
+    def cancel(self):
+        with self.lock:
+            if not self.state['active'] or self.state['phase'] in ('done', 'connected', 'review', 'error', 'cancelled'):
+                return
+            self.cancel_requested.set()
+            if self.cancel_file:
+                self.cancel_file.touch()
+            self.state.update(phase='cancelling', message='正在停止，当前网络操作结束后退出。已校验的 PDF 会保留。')
+
+    def check_cancel(self):
+        if self.cancel_requested.is_set():
+            raise TaskCancelled()
 
     def run_script(self, script, args, on_line):
         log_dir = DATA_ROOT / 'logs'
         log_dir.mkdir(parents=True, exist_ok=True)
         log = log_dir / f'{datetime.now():%Y%m%d-%H%M%S-%f}-{Path(script).stem}.log'
-        environment = dict(os.environ, PYTHONUTF8='1', PYTHONUNBUFFERED='1')
+        environment = dict(os.environ, PYTHONUTF8='1', PYTHONUNBUFFERED='1',
+                           XJTLUPAPERFORGE_EVENTS='1',
+                           XJTLUPAPERFORGE_OUTPUT=self.state['job_output_dir'] or self.state['output_dir'])
+        if self.cancel_file:
+            environment['XJTLUPAPERFORGE_CANCEL_FILE'] = str(self.cancel_file)
         command = [sys.executable, '-u', str(PROJECT_ROOT / script), *args]
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         with log.open('w', encoding='utf-8') as stream:
@@ -98,15 +148,39 @@ class Jobs:
 
     def consume(self, row, line):
         with self.lock:
+            if line.startswith(PREFIX):
+                try:
+                    event = json.loads(line[len(PREFIX):])
+                except ValueError:
+                    return
+                kind = event.get('event')
+                if kind == 'phase' and not self.cancel_requested.is_set():
+                    phase = event.get('phase')
+                    if phase in ('login', 'waiting', 'searching', 'downloading', 'validating'):
+                        self.state.update(phase=phase)
+                if row is None:
+                    return
+                if kind == 'catalog':
+                    row['expected'] = event['total']
+                elif kind == 'paper':
+                    self.state.update(current_file=event.get('name', ''), pages_done=0,
+                                      pages_total=None)
+                    if 'retry' in event:
+                        self.state['retrying'] = bool(event['retry'])
+                elif kind == 'pages':
+                    self.state.update(pages_done=event['done'], pages_total=event['total'])
+                elif kind == 'verified':
+                    self.add_paper(row, event['name'], event['pages'])
+                return
+            if row is None:
+                return
             found = re.search(r'共发现 (\d+) 套试卷', line)
             if found:
                 row['expected'] = int(found[1])
                 row['message'] = f'找到 {found[1]} 套，正在导出并校验'
             paper = re.search(r'✓ (.+\.pdf)（(\d+) 页，已校验）', line)
             if paper:
-                if not any(p['name'] == paper[1] for p in row['papers']):
-                    row['papers'].append(dict(name=paper[1], pages=int(paper[2])))
-                row['message'] = f"已完成 {len(row['papers'])} 套"
+                self.add_paper(row, paper[1], int(paper[2]))
             if line.startswith('✗') or line.startswith('导出未完成:'):
                 error = public_error(line)
                 if error not in row['errors']:
@@ -114,22 +188,33 @@ class Jobs:
             if '未找到' in line and '试卷' in line:
                 row.update(expected=0, message='网站未找到该课程的试卷')
 
+    def add_paper(self, row, name, pages):
+        if not any(p['name'] == name for p in row['papers']):
+            row['papers'].append(dict(name=name, pages=pages))
+        row['message'] = f"已完成 {len(row['papers'])} 套"
+
     def work(self, kind, courses, scale):
         try:
-            login_code = self.runner('login.py', [], lambda line: None)
+            self.check_cancel()
+            login_code = self.runner('login.py', [], lambda line: self.consume(None, line))
+            self.check_cancel()
             if login_code:
                 self.update(login_ready=False, phase='error', message='登录未完成。请检查学校网页或网络，然后重试。')
                 return
             self.update(login_ready=True)
             if kind == 'login':
-                self.update(phase='done', message='学校账号已连接，可以开始导出。')
+                self.update(phase='connected', message='学校账号已连接，可以开始导出。')
                 return
             for index, row in enumerate(self.state['results']):
+                self.check_cancel()
                 with self.lock:
                     row.update(status='working', message='正在搜索课程')
-                    self.state.update(phase='export', message=f"正在整理 {row['course']}")
+                    self.state.update(phase='searching', current_course=row['course'], current_file='',
+                                      pages_done=0, pages_total=None, retrying=False,
+                                      message=f"正在整理 {row['course']}")
                 code = self.runner('batch_capture.py', [row['course'], '--scale', str(scale)],
                                    lambda line: self.consume(row, line))
+                self.check_cancel()
                 with self.lock:
                     if code == 0 and row['expected'] == 0:
                         row.update(status='empty', message='网站未找到该课程的试卷')
@@ -140,14 +225,29 @@ class Jobs:
                                    message=row['errors'][0] if row['errors'] else public_error(''))
                     self.state['finished'] = index + 1
             with self.lock:
-                failures = any(r['status'] in ('partial', 'failed') for r in self.state['results'])
+                self.check_cancel()
+                failures = any(r['status'] != 'complete' for r in self.state['results'])
                 count = sum(len(r['papers']) for r in self.state['results'])
-            self.update(phase='review' if failures else 'done',
-                        message=f'处理结束，{count} 份 PDF 已通过校验。' + (' 部分课程需要重试。' if failures else ''))
+                self.state.update(phase='review' if failures else 'done',
+                                  message=f'处理结束，{count} 份 PDF 已通过校验。' + (' 部分课程需要核对或重试。' if failures else ''))
+        except TaskCancelled:
+            with self.lock:
+                for row in self.state['results']:
+                    if row['status'] in ('working', 'pending'):
+                        row.update(status='cancelled', message='已停止，已校验的文件保留')
+                self.state.update(phase='cancelled', message='已取消整理。已校验的 PDF 已保留，可随时重新开始。')
         except Exception:
             self.update(phase='error', message='任务未能完成，请检查本地环境后重试。已完成文件会保留。')
         finally:
-            self.update(active=False)
+            with self.lock:
+                for row in self.state['results']:
+                    if row['status'] in ('working', 'pending'):
+                        row.update(status='failed', message='任务未完成，可重试')
+                try:
+                    if self.cancel_file:
+                        self.cancel_file.unlink(missing_ok=True)
+                finally:
+                    self.state['active'] = False
 
 
 class Server(ThreadingHTTPServer):
@@ -200,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
                   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                   '/style.css': ('style.css', 'text/css; charset=utf-8'),
                   '/icon.svg': ('icon.svg', 'image/svg+xml')}
+        for mood in ('idle', 'starting', 'searching', 'downloading', 'validating', 'success', 'issue'):
+            assets[f'/assets/{mood}.png'] = (f'assets/{mood}.png', 'image/png')
         if self.path not in assets:
             return self.send(404, {'error': '页面不存在。'})
         name, mime = assets[self.path]
@@ -223,25 +325,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.jobs.start('export', courses, scale)
             elif self.path == '/api/login':
                 self.server.jobs.start('login')
+            elif self.path == '/api/cancel':
+                self.server.jobs.cancel()
+            elif self.path in ('/api/output/select', '/api/output/reset'):
+                changed = self.server.jobs.change_output(reset=self.path.endswith('/reset'))
+                return self.send(200, {'ok': True, 'changed': changed})
             elif self.path == '/api/open-output':
-                folder = OUTPUT_ROOT
+                state = self.server.jobs.snapshot()
+                folder = Path((state['job_output_dir'] if payload.get('job') else None) or state['output_dir'])
                 course = payload.get('course')
                 if course:
                     courses, _ = validate_export({'courses': [course]})
-                    folder = folder / courses[0]
-                folder.mkdir(parents=True, exist_ok=True)
+                    folder = course_directory(folder, courses[0])
+                folder = validate_directory(folder, create=True)
                 os.startfile(str(folder))
             elif self.path == '/api/shutdown':
-                if self.server.jobs.snapshot()['active']:
-                    raise RuntimeError('导出仍在进行，请完成后再退出。')
+                if any(self.server.jobs.snapshot()[k] for k in ('active', 'folder_busy')):
+                    raise RuntimeError('任务或文件夹选择仍在进行，请结束后再退出。')
                 self.send(200, {'ok': True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             else:
                 return self.send(404, {'error': '操作不存在。'})
             self.send(200, {'ok': True})
-        except (ValueError, TypeError):
-            self.send(400, {'error': '输入格式有误，请检查课程编号和清晰度。'})
+        except (ValueError, TypeError) as exc:
+            self.send(400, {'error': str(exc) if isinstance(exc, ValueError) else '输入格式有误。'})
         except RuntimeError as exc:
             self.send(409, {'error': str(exc)})
         except OSError:

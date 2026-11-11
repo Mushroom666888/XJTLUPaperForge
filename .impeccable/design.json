@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T20:07:48.961088Z",
+  "title": "Design System: XJTLU PaperForge",
+  "extensions": {
+    "colorMeta": {
+      "cream": {
+        "role": "neutral",
+        "displayName": "Warm Cream"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper White"
+      },
+      "forest": {
+        "role": "primary",
+        "displayName": "Forest Green"
+      },
+      "forest-hover": {
+        "role": "primary",
+        "displayName": "Deep Forest"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Forest Ink"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Olive Grey"
+      },
+      "sage": {
+        "role": "primary",
+        "displayName": "Soft Sage"
+      },
+      "meadow": {
+        "role": "neutral",
+        "displayName": "Pale Meadow"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Warm Divider"
+      },
+      "rust": {
+        "role": "secondary",
+        "displayName": "Terracotta Rust"
+      },
+      "error-surface": {
+        "role": "neutral",
+        "displayName": "Warm Error Paper"
+      },
+      "focus-ring": {
+        "role": "primary",
+        "displayName": "Focus Green"
+      },
+      "selected-border": {
+        "role": "primary",
+        "displayName": "Selected Green"
+      },
+      "selected-surface": {
+        "role": "neutral",
+        "displayName": "Selected Meadow"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Opening question."
+      },
+      "display-emphasis": {
+        "displayName": "Display Emphasis",
+        "purpose": "Italic Paper accent in the opening question."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Companion status heading."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Ordinary interface copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Helper copy, counters and compact labels."
+      },
+      "field-label": {
+        "displayName": "Field Label",
+        "purpose": "Form labels and legends."
+      },
+      "input": {
+        "displayName": "Input",
+        "purpose": "Course-entry value."
+      }
+    },
+    "shadows": [
+      {
+        "name": "composer-ambient",
+        "value": "0 12px 36px -20px #24483236",
+        "purpose": "Diffuse depth under the paper composer."
+      },
+      {
+        "name": "paper-prop",
+        "value": "0 4px 6px #516c4520",
+        "purpose": "Small shadow under decorative paper props."
+      },
+      {
+        "name": "toast",
+        "value": "0 8px 30px #23392e30",
+        "purpose": "Transient toast separation from the page."
+      }
+    ],
+    "motion": [
+      {
+        "name": "fast",
+        "value": "160ms",
+        "purpose": "Color, background and border feedback."
+      },
+      {
+        "name": "normal",
+        "value": "260ms",
+        "purpose": "Button and arrow transforms."
+      },
+      {
+        "name": "ease",
+        "value": "cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "Restrained transform settling."
+      },
+      {
+        "name": "thoughtful",
+        "value": "thoughtful 2.4s ease-in-out infinite",
+        "purpose": "Active searching, downloading and validating only; paused when hidden or offscreen."
+      },
+      {
+        "name": "depart",
+        "value": "depart 650ms var(--ease) both",
+        "purpose": "One departure on starting."
+      },
+      {
+        "name": "celebrate",
+        "value": "celebrate 850ms var(--ease) both",
+        "purpose": "One celebration on complete."
+      },
+      {
+        "name": "mushroom-hover",
+        "value": "sway 800ms var(--ease)",
+        "purpose": "Brief scene-hover response."
+      },
+      {
+        "name": "mushroom-complete",
+        "value": "sway 900ms var(--ease)",
+        "purpose": "Brief completion response."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-columns",
+        "value": "960px"
+      },
+      {
+        "name": "stacked",
+        "value": "740px"
+      },
+      {
+        "name": "narrow",
+        "value": "390px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The full-width action that starts an archive.",
+      "html": "<button class=\"ds-primary\"><span>开始整理试卷</span><svg class=\"ds-arrow\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></button>",
+      "css": ".ds-primary { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; padding: 14px 18px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; border: 0; border-radius: 10px; background: var(--forest, #234c3c); color: var(--paper, #fffef9); font-weight: 600; font-size: 14px; cursor: pointer; transition: color var(--fast, 160ms), background var(--fast, 160ms), transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-primary:hover:not(:disabled) { background: var(--forest-hover, #193c2f); transform: translateY(-2px); } .ds-arrow { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; flex: 0 0 auto; width: 18px; height: 18px; transition: transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-primary:hover:not(:disabled) .ds-arrow { transform: translateX(3px); } .ds-primary:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-primary:active:not(:disabled) { transform: translateY(1px); } .ds-primary:disabled { cursor: default; opacity: .52; transform: none !important; } @media (prefers-reduced-motion: reduce) { .ds-primary, .ds-arrow { transition: none; } .ds-primary:hover:not(:disabled), .ds-primary:hover:not(:disabled) .ds-arrow { transform: none; } }"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A compact outlined action within activity.",
+      "html": "<button class=\"ds-secondary\">取消整理</button>",
+      "css": ".ds-secondary { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #a7b69c; background: transparent; color: var(--forest, #234c3c); padding: 7px 12px; border-radius: 7px; font-size: 12px; cursor: pointer; transition: color var(--fast, 160ms), background var(--fast, 160ms), transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-secondary:hover:not(:disabled) { background: var(--sage, #dfe7d7); } .ds-secondary:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-secondary:active:not(:disabled) { transform: translateY(1px); } .ds-secondary:disabled { cursor: default; opacity: .52; transform: none !important; } @media (prefers-reduced-motion: reduce) { .ds-secondary { transition: none; } }"
+    },
+    {
+      "name": "Text action",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "A quiet folder or account action.",
+      "html": "<button class=\"ds-text\">更改位置</button>",
+      "css": ".ds-text { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; border: 0; background: transparent; color: var(--forest, #234c3c); padding: 6px 0; font-size: 12px; text-decoration-thickness: 1px; text-underline-offset: 4px; cursor: pointer; transition: color var(--fast, 160ms), background var(--fast, 160ms), transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-text:hover:not(:disabled) { text-decoration: underline; } .ds-text:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-text:active:not(:disabled) { transform: translateY(1px); } .ds-text:disabled { cursor: default; opacity: .52; transform: none !important; } @media (prefers-reduced-motion: reduce) { .ds-text { transition: none; } }"
+    },
+    {
+      "name": "Icon action",
+      "kind": "button",
+      "refersTo": "button-icon",
+      "description": "A named compact action in the header.",
+      "html": "<button class=\"ds-icon-button\" aria-label=\"退出应用\"><svg class=\"ds-close\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m7 7 10 10M17 7 7 17\"/></svg></button>",
+      "css": ".ds-icon-button { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; width: 36px; height: 36px; display: inline-grid; place-items: center; border: none; color: var(--muted, #647063); background: transparent; border-radius: 8px; cursor: pointer; transition: color var(--fast, 160ms), background var(--fast, 160ms), transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-icon-button:hover:not(:disabled) { color: var(--forest, #234c3c); background: var(--sage, #dfe7d7); } .ds-close { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; flex: 0 0 auto; } .ds-icon-button:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-icon-button:active:not(:disabled) { transform: translateY(1px); } .ds-icon-button:disabled { cursor: default; opacity: .52; transform: none !important; } @media (prefers-reduced-motion: reduce) { .ds-icon-button { transition: none; } }"
+    },
+    {
+      "name": "Course field",
+      "kind": "input",
+      "refersTo": "course-input",
+      "description": "A readable course-entry field with label, help and invalid state.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-courses\">课程编号</label><input id=\"ds-courses\" class=\"ds-courses\" placeholder=\"例如 CAN209、EEE211\" aria-describedby=\"ds-course-help\"><p class=\"ds-field-help\" id=\"ds-course-help\">用空格或逗号分隔，最多 20 门。大小写都可以。</p>",
+      "css": ".ds-field-label { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; font-weight: 600; display: block; margin-bottom: 10px; font-size: 13px; color: var(--ink, #263d32); } .ds-courses { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; width: 100%; padding: 14px 15px; border: 1px solid #c9d1c3; border-radius: 9px; color: var(--ink, #263d32); background: var(--paper, #fffef9); font-size: 16px; caret-color: var(--forest, #234c3c); transition: border-color var(--fast, 160ms), background var(--fast, 160ms); } .ds-courses::placeholder { color: #72766b; font-size: 14px; } .ds-courses:focus { border-color: var(--forest, #234c3c); background: #fff; outline: 2px solid #a4b59b; outline-offset: 2px; } .ds-courses[aria-invalid=\"true\"] { border-color: var(--rust, #9d4b34); } .ds-field-help { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; font-size: 12px; line-height: 1.7; color: var(--muted, #647063); margin: 9px 0 0; } @media (prefers-reduced-motion: reduce) { .ds-courses { transition: none; } }"
+    },
+    {
+      "name": "Masthead navigation",
+      "kind": "nav",
+      "refersTo": "masthead",
+      "description": "Home wordmark, local identity and exit action; no invented menu.",
+      "html": "<header class=\"ds-masthead\"><a class=\"ds-brand\" href=\"/\" aria-label=\"XJTLUPaperForge 首页\"><span class=\"ds-brand-mark\"><svg class=\"ds-leaf\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 19c-3-9 4-15 14-14 1 10-5 17-14 14Zm0 0L15 9\"/></svg></span><span>XJTLU <strong>PaperForge</strong></span></a><div class=\"ds-header-actions\"><span class=\"ds-local\"><i></i>本地工作台</span><button class=\"ds-exit\" aria-label=\"退出应用\"><svg class=\"ds-close\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m7 7 10 10M17 7 7 17\"/></svg></button></div></header>",
+      "css": ".ds-masthead { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; height: 88px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line, #dce0d3); gap: 16px; } .ds-brand { display: flex; align-items: center; gap: 11px; font-size: 17px; letter-spacing: -.025em; color: var(--forest, #234c3c); white-space: nowrap; text-decoration: none; } .ds-brand strong { font-weight: 650; } .ds-brand-mark { display: grid; place-items: center; width: 34px; height: 38px; background: var(--forest, #234c3c); border-radius: 10px 10px 14px 10px; color: var(--cream, #f5f3e9); } .ds-leaf { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; flex: 0 0 auto; width: 23px; height: 23px; } .ds-header-actions { display: flex; align-items: center; gap: 16px; } .ds-local { display: flex; align-items: center; gap: 7px; color: var(--muted, #647063); font-size: 12px; white-space: nowrap; } .ds-local i { width: 6px; height: 6px; border-radius: 50%; background: #73896c; display: inline-block; } .ds-exit { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; width: 36px; height: 36px; display: inline-grid; place-items: center; border: none; color: var(--muted, #647063); background: transparent; border-radius: 8px; cursor: pointer; transition: color var(--fast, 160ms), background var(--fast, 160ms), transform var(--normal, 260ms) var(--ease, cubic-bezier(.16, 1, .3, 1)); } .ds-exit:hover:not(:disabled) { color: var(--forest, #234c3c); background: var(--sage, #dfe7d7); } .ds-close { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; flex: 0 0 auto; } .ds-brand:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-exit:focus-visible { outline: 3px solid #638366; outline-offset: 4px; } .ds-exit:active:not(:disabled) { transform: translateY(1px); } .ds-exit:disabled { cursor: default; opacity: .52; transform: none !important; } @media (max-width: 740px) { .ds-masthead { height: 74px; } .ds-local { display: none; } .ds-brand { font-size: 16px; } } @media (max-width: 390px) { .ds-brand { font-size: 14px; } } @media (prefers-reduced-motion: reduce) { .ds-exit { transition: none; } }"
+    },
+    {
+      "name": "Course chips",
+      "kind": "chip",
+      "refersTo": "course-chip",
+      "description": "Parsed course labels with an explicit invalid variant.",
+      "html": "<div class=\"ds-chips\"><span class=\"ds-chip\">CAN209</span><span class=\"ds-chip ds-invalid\">CAN20</span></div>",
+      "css": ".ds-chips { display: flex; flex-wrap: wrap; gap: 6px; } .ds-chip { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; color: var(--forest, #234c3c); background: var(--meadow, #edf0e5); padding: 2px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; } .ds-chip.ds-invalid { color: var(--rust, #9d4b34); background: var(--error-surface, #f9ece4); }"
+    },
+    {
+      "name": "Composer surface",
+      "kind": "card",
+      "refersTo": "composer",
+      "description": "The warm paper surface for archive controls.",
+      "html": "<section class=\"ds-composer\"><div class=\"ds-section-heading\"><h2>开始一份新归档</h2><span>支持多门课程</span></div></section>",
+      "css": ".ds-composer { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; color: var(--ink, #263d32); min-width: 0; border-radius: var(--radius, 16px); padding: 28px; background: var(--paper, #fffef9); box-shadow: var(--shadow, 0 12px 36px -20px #24483236); } .ds-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; } .ds-section-heading h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.02em; } .ds-section-heading span { color: var(--muted, #647063); font-size: 12px; } @media (max-width: 960px) { .ds-composer { padding: 24px; } } @media (max-width: 390px) { .ds-composer { padding: 20px; } } @media (forced-colors: active) { .ds-composer { border: 1px solid ButtonText; } }"
+    },
+    {
+      "name": "Activity surface",
+      "kind": "card",
+      "refersTo": "activity",
+      "description": "A quiet meadow surface with the existing readiness badge.",
+      "html": "<section class=\"ds-activity\"><div class=\"ds-activity-heading\"><h2>整理进度</h2><span class=\"ds-phase\" role=\"status\">准备就绪</span></div></section>",
+      "css": ".ds-activity { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; color: var(--ink, #263d32); min-width: 0; border-radius: var(--radius, 16px); padding: 28px; background: var(--meadow, #edf0e5); position: relative; overflow: hidden; } .ds-activity-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; } .ds-activity-heading h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.02em; } .ds-phase { font-size: 12px; padding: 3px 9px; background: #dfe7d5; border-radius: 6px; color: #436047; white-space: nowrap; } @media (max-width: 960px) { .ds-activity { padding: 24px; } } @media (max-width: 390px) { .ds-activity { padding: 20px; } } @media (forced-colors: active) { .ds-activity { border: 1px solid ButtonText; } }"
+    },
+    {
+      "name": "Quality options",
+      "kind": "custom",
+      "refersTo": "quality-option",
+      "description": "Native radio choices styled as compact two-column selections.",
+      "html": "<fieldset class=\"ds-quality\"><legend>PDF 清晰度</legend><div class=\"ds-quality-options\"><label class=\"ds-quality-option\"><input type=\"radio\" name=\"ds-quality\" checked><span><strong>标准 <small>192 DPI</small></strong><span>日常阅读，体积适中</span></span><i aria-hidden=\"true\"></i></label><label class=\"ds-quality-option\"><input type=\"radio\" name=\"ds-quality\"><span><strong>精细 <small>300 DPI</small></strong><span>细节更多，稍等久一点</span></span><i aria-hidden=\"true\"></i></label></div></fieldset>",
+      "css": ".ds-quality { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif; line-height: 1.6; color: var(--ink, #263d32); border: 0; padding: 0; min-width: 0; margin: 24px 0; } .ds-quality legend { font-weight: 600; display: block; margin-bottom: 10px; font-size: 13px; } .ds-quality-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .ds-quality-option { position: relative; display: flex; align-items: flex-start; padding: 13px; gap: 8px; border: 1px solid var(--line, #dce0d3); border-radius: 10px; cursor: pointer; transition: border-color var(--fast, 160ms), background var(--fast, 160ms); } .ds-quality-option:hover { background: #f5f6ef; } .ds-quality-option:has(input:checked) { border-color: #52765b; background: #edf2e8; } .ds-quality-option:has(input:focus-visible) { outline: 3px solid #638366; outline-offset: 3px; } .ds-quality-option:has(input:disabled) { opacity: .6; cursor: default; } .ds-quality-option input { position: absolute; opacity: 0; width: 1px; height: 1px; } .ds-quality-option>span { flex: 1; min-width: 0; } .ds-quality-option strong { display: block; font-size: 14px; font-weight: 600; } .ds-quality-option small { font-size: 12px; margin-left: 4px; color: var(--forest, #234c3c); white-space: nowrap; font-weight: 600; } .ds-quality-option span>span { display: block; margin-top: 3px; color: var(--muted, #647063); font-size: 12px; } .ds-quality-option i { border: 1px solid #7a8974; border-radius: 50%; width: 13px; height: 13px; flex-shrink: 0; margin-top: 5px; } .ds-quality-option:has(input:checked) i { border: 4px solid var(--forest, #234c3c); background: var(--paper, #fffef9); } @media (max-width: 960px) { .ds-quality-option { padding: 11px 9px; gap: 4px; } .ds-quality-option strong small { display: block; margin-left: 0; } } @media (max-width: 740px) { .ds-quality-option { padding: 13px; } .ds-quality-option strong small { display: inline; margin-left: 4px; } } @media (max-width: 390px) { .ds-quality-option { padding: 10px 8px; } .ds-quality-option strong small { display: block; margin-left: 0; } } @media (prefers-reduced-motion: reduce) { .ds-quality-option { transition: none; } } @media (forced-colors: active) { .ds-quality-option input { position: static; opacity: 1; width: auto; height: auto; } .ds-quality-option i { display: none; } .ds-quality-option { border: 1px solid ButtonText; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A quiet archive desk",
+    "overview": "Warm cream, paper white and muted forest green make the workbench feel calm and dependable. Chinese system typography and clearly separated controls keep the interface practical; a restrained Georgia italic gives the word Paper a small editorial accent.\n\nThe supplied-reference companion adds expression without replacing readable status. Seven colored raster expressions, a soft paper rim, an offset shadow and three small terracotta SVG mushrooms form the established illustration language. Preserve this restrained material character as the interface grows.",
+    "keyCharacteristics": [
+      "Warm neutral surfaces with forest-green actions.",
+      "Readable Chinese system typography and restrained serif emphasis.",
+      "Gently rounded surfaces, fine dividers and sparse ambient depth.",
+      "Seven supplied-reference expressions paired with explicit status text.",
+      "Responsive stacking and motion that respects reduced-motion preferences."
+    ],
+    "rules": [
+      {
+        "name": "The Functional Type Rule",
+        "body": "Functional text stays at 12px or larger, including narrow layouts.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do preserve the cream, paper and meadow surface hierarchy with forest-green actions.",
+      "Do keep functional text at 12px or larger and preserve visible keyboard focus.",
+      "Do use the seven colored supplied-reference expressions and the authorized small SVG mushrooms.",
+      "Do make waiting, partial, failed and cancelled states readable in text as well as color.",
+      "Do pause offscreen or hidden animation and remove animation and transitions under reduced motion."
+    ],
+    "donts": [
+      "Don't replace the supplied companion with an unrelated character or add an eighth expression.",
+      "Don't treat unknown workload as a percentage or use the success expression for partial results.",
+      "Don't introduce remote fonts or dynamic external imagery into this local visual system.",
+      "Don't make buttons, fields or status text compete with large decorative effects."
+    ]
+  }
+}

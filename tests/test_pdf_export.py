@@ -90,6 +90,30 @@ class PdfQualityTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertEqual(list(scratch.iterdir()), [])
 
+    def test_existing_invalid_file_is_never_overwritten(self):
+        output = self.root / 'output'
+        target = output / 'CAN209' / 'CAN209_2023-24_F.pdf'
+        target.parent.mkdir(parents=True); target.write_bytes(b'precious existing file')
+        with patch.object(pdf_output, 'OUTPUT_ROOT', output), patch.object(pdf_output, 'extract_canvas_pages') as capture:
+            with self.assertRaises(FileExistsError):
+                pdf_output.save_paper_pdf(object(), 'CAN209', 'CAN209_2023-24_F', 2, 2)
+            capture.assert_not_called()
+        self.assertEqual(target.read_bytes(), b'precious existing file')
+
+    def test_cancelled_validation_never_publishes_and_cleans_staging(self):
+        from task_events import TaskCancelled
+        output = self.root / 'output'
+        def capture(viewer, folder, scale):
+            make_pages(folder); return 2
+        with patch.object(pdf_output, 'OUTPUT_ROOT', output), patch.object(pdf_output, 'WORK_ROOT', self.root/'scratch'), \
+             patch.object(pdf_output, 'extract_canvas_pages', side_effect=capture), \
+             patch.object(pdf_output, 'check_cancelled', side_effect=[None, None, TaskCancelled()]):
+            with self.assertRaises(TaskCancelled):
+                pdf_output.save_paper_pdf(object(), 'CAN209', 'CAN209_2023-24_F', 2, 2)
+        self.assertEqual(list(output.rglob('*.pdf')), [])
+        self.assertEqual(list(output.rglob('.paperforge-*')), [])
+        self.assertEqual(list((self.root/'scratch').iterdir()), [])
+
 
 VIEWER_HTML = '''<div class="page" data-page-number="1"><canvas></canvas></div>
 <div class="page" data-page-number="2"><canvas></canvas></div><script>
@@ -193,6 +217,24 @@ class BrowserExportTests(unittest.TestCase):
         self.assertEqual(list(self.root.rglob('*.png')), [])
         self.assertEqual(list(self.root.rglob('*.pdf')), [])
         self.assertEqual(set(self.context.pages), before)
+
+    def test_custom_destination_on_project_volume_has_verified_300_dpi_pdf(self):
+        # The current Windows checkout is on D:, while capture scratch uses C:.
+        # CI uses its own available volume; neither case touches actual school papers.
+        from settings import PROJECT_ROOT
+        from output_preferences import OutputPreferences
+        work = PROJECT_ROOT / 'work'; work.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='export-integration-', dir=work) as destination:
+            preferences = OutputPreferences(self.root/'settings.json', self.root/'default')
+            selected = preferences.save(destination)
+            with patch.object(pdf_output, 'OUTPUT_ROOT', selected):
+                result = extract_one_paper(self.context, self.user_tab, self.paper, 3.125, 'CAN209')
+            self.assertTrue(result.success, result.error)
+            expected = selected/'CAN209'/'CAN209_2023-24_F.pdf'
+            self.assertEqual(Path(result.output_file), expected)
+            self.assertEqual(verify_pdf(expected, 2, 300), 2)
+            self.assertEqual(list(selected.rglob('*.png')), [])
+            self.assertEqual(list(selected.rglob('.paperforge-*')), [])
 
     def test_embargo_is_reported_without_trying_to_open_viewer(self):
         def blocked(route):

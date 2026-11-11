@@ -16,6 +16,7 @@ from capture_canvas import (
     read_detail_text, detect_total_pages, has_next_page, go_to_next_page,
 )
 from pdf_output import normalize_course_code, validate_scale, save_paper_pdf
+from task_events import check_cancelled, emit, TaskCancelled
 
 
 @dataclass
@@ -45,6 +46,7 @@ def collect_all_papers(exam_tab, course_code=None):
     papers, seen_hrefs = [], set()
     page_num = 1
     while True:
+        check_cancelled()
         found = collect_search_results(exam_tab)
         new_count = 0
         for item in found:
@@ -71,6 +73,7 @@ def _wait_for_pdf_viewer(detail_page, owned_pages, timeout=60):
     """Only consider the detail page and popups opened by that page."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        check_cancelled()
         for candidate in reversed(owned_pages):
             if candidate.is_closed():
                 continue
@@ -93,6 +96,7 @@ def extract_one_paper(context, exam_tab, paper, scale, course_code):
     owned_pages = []
     paper_name, output_file, page_count = "", "", 0
     try:
+        check_cancelled()
         if paper.site_text and not _matches_course(paper.site_text, course_code):
             raise ValueError("搜索结果的课程编号不匹配，已拒绝导出。")
         detail = context.new_page()
@@ -119,8 +123,12 @@ def extract_one_paper(context, exam_tab, paper, scale, course_code):
             year = f"idx{paper.page_num:02d}_{paper.index:02d}"
         paper_name = f"{code}_{year}_{exam_type}"
         page_count = detect_total_pages(viewer)
+        emit('paper', name=paper_name + '.pdf')
+        emit('phase', phase='downloading')
         output_file = save_paper_pdf(viewer, course_code, paper_name, scale, page_count)
         return ExtractionResult(paper, paper_name, output_file, page_count, True)
+    except TaskCancelled:
+        raise
     except Exception as exc:
         return ExtractionResult(paper, paper_name, output_file, 0, False, str(exc))
     finally:
@@ -145,22 +153,32 @@ def batch_capture(course_code, scale=2.0, headless=False):
             exam_tab = None
             try:
                 login(index_page, allow_manual=persistent or not headless)
+                check_cancelled()
+                emit('phase', phase='searching')
                 exam_tab = navigate_to_past_exam_papers(index_page)
                 agree_and_search(exam_tab, course_code)
                 papers = collect_all_papers(exam_tab, course_code)
+                emit('catalog', total=len(papers))
                 if not papers:
                     print(f"未找到 {course_code} 的试卷。")
                     return True
                 print(f"共发现 {len(papers)} 套试卷，开始导出 PDF。")
                 results = []
                 for index, paper in enumerate(papers, 1):
+                    check_cancelled()
+                    emit('phase', phase='downloading')
+                    emit('paper', name=f'试卷 {index} / {len(papers)}', retry=False)
                     print(f"\n[{index}/{len(papers)}] {paper.text}")
                     result = extract_one_paper(context, exam_tab, paper, scale, course_code)
                     if not result.success and "标记为封存" not in (result.error or ""):
+                        check_cancelled()
+                        emit('phase', phase='downloading')
+                        emit('paper', name=result.paper_name + '.pdf' if result.paper_name else f'试卷 {index}', retry=True)
                         print(f"  首次未完成，重新尝试一次: {result.error}")
                         result = extract_one_paper(context, exam_tab, paper, scale, course_code)
                     results.append(result)
                     if result.success:
+                        emit('verified', name=result.paper_name + '.pdf', pages=result.page_count)
                         print(f"  ✓ {result.paper_name}.pdf（{result.page_count} 页，已校验）")
                     else:
                         print(f"  ✗ {result.error}")
@@ -189,6 +207,9 @@ if __name__ == "__main__":
         sys.exit(0)
     try:
         sys.exit(0 if batch_capture(code, args.scale, args.headless) else 1)
+    except TaskCancelled:
+        print('任务已取消，已校验的 PDF 已保留。')
+        sys.exit(2)
     except Exception as exc:
         print(f"导出未完成: {exc}")
         sys.exit(1)

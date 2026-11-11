@@ -2,6 +2,7 @@
 exam_pages/
 unused_files/
 work/
+.impeccable/review/
 
 # 课程文件与临时文件
 *.pdf

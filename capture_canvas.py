@@ -20,6 +20,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
+from task_events import check_cancelled, emit
 from playwright.sync_api import sync_playwright
 from browser_session import open_chrome
 from settings import PROFILE_DIR
@@ -197,6 +198,8 @@ def login(page, username=None, password=None, allow_manual=True):
     XJTLU SSO 带深信服 UEBA 风控（鼠标轨迹指纹），自动点击的零轨迹行为
     会被风控 400 拦截，因此登录一律由用户手动完成。
     """
+    check_cancelled()
+    emit("phase", phase="login")
     print("打开首页...")
     page.goto(BASE_URL, wait_until="domcontentloaded")
     # 等 SPA 渲染完成
@@ -234,9 +237,11 @@ def login(page, username=None, password=None, allow_manual=True):
             "浏览器登录状态已失效。请先去掉 --headless 运行一次并手动登录。"
         )
 
+    emit("phase", phase="waiting")
     print("程序将等待登录完成（最多 5 分钟）...")
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
+        check_cancelled()
         try:
             if _is_logged_in(page):
                 print("登录成功，继续流程。")
@@ -330,6 +335,7 @@ def preload_pages(page, total):
     """快速遍历每一页触发渲染，再回到第一页"""
     print(f"预加载 {total} 页...")
     for i in range(1, total + 1):
+        check_cancelled()
         page.evaluate("(n) => { PDFViewerApplication.page = n; }", i)
         page.wait_for_timeout(200)
     page.evaluate("() => { PDFViewerApplication.page = 1; }")
@@ -387,6 +393,7 @@ def extract_canvas_pages(page, output_dir, scale=2.0):
     返回成功提取的页数。
     """
     total = detect_total_pages(page)
+    emit("pages", done=0, total=total)
     preload_pages(page, total)
 
     os.makedirs(output_dir, exist_ok=True)
@@ -394,6 +401,7 @@ def extract_canvas_pages(page, output_dir, scale=2.0):
 
     success = 0
     for i in range(1, total + 1):
+        check_cancelled()
         result = _capture_rendered_page(page, i, scale)
 
         if not result.get("ok"):
@@ -409,6 +417,8 @@ def extract_canvas_pages(page, output_dir, scale=2.0):
             f.write(img_data)
 
         success += 1
+        emit("pages", done=success, total=total)
+        check_cancelled()
         print(f"  第 {i:03d} 页 ✓ ({result['width']}×{result['height']}) → {filename}")
 
     print(f"提取完成，成功 {success}/{total} 页 → {output_dir}/")

@@ -8,6 +8,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from app import Jobs, Server, validate_export
+from output_preferences import OutputPreferences
+from unittest.mock import patch
 from install import install_skill
 
 
@@ -147,6 +149,8 @@ class FrontendTests(unittest.TestCase):
         cls.playwright.stop()
 
     def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
         self.calls = []
         def runner(script, args, consume):
             self.calls.append((script, args))
@@ -154,7 +158,7 @@ class FrontendTests(unittest.TestCase):
                 consume('共发现 1 套试卷，开始导出 PDF。')
                 consume(f'✓ {args[0]}_2025-26_F.pdf（9 页，已校验）')
             return 0
-        self.server = Server(jobs=Jobs(runner))
+        self.server = Server(jobs=Jobs(runner, OutputPreferences(self.root/'preferences.json', self.root/'output')))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.page = self.browser.new_page(viewport={'width': 1200, 'height': 850})
@@ -167,6 +171,7 @@ class FrontendTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()
+        self.temp.cleanup()
 
     def test_course_form_runs_ordered_jobs_and_displays_verified_results(self):
         from playwright.sync_api import expect
@@ -188,6 +193,121 @@ class FrontendTests(unittest.TestCase):
         expect(self.page.locator('#error')).to_be_visible()
         self.assertEqual(self.calls, [])
         self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        self.assertEqual(self.errors, [])
+
+    def test_empty_input_and_standard_quality(self):
+        from playwright.sync_api import expect
+        self.page.locator('#submit').click()
+        expect(self.page.locator('#courses')).to_be_focused()
+        expect(self.page.locator('#courses')).to_have_attribute('aria-invalid', 'true')
+        self.assertEqual(self.calls, [])
+        self.page.locator('#courses').fill('CAN209')
+        self.page.locator('#submit').click()
+        expect(self.page.locator('.result.complete')).to_have_count(1)
+        self.assertEqual(self.calls[-1][1], ['CAN209','--scale','2.0'])
+
+    def test_native_folder_buttons_persist_cancel_reset_and_open(self):
+        from playwright.sync_api import expect
+        custom = self.root / '试卷 folder'; custom.mkdir()
+        self.server.jobs.picker = lambda _: str(custom)
+        self.page.locator('#change-output').click()
+        expect(self.page.locator('#output-path')).to_have_text(str(custom))
+        self.assertEqual(OutputPreferences(self.root/'preferences.json', self.root/'output').path, custom)
+        self.server.jobs.picker = lambda _: None
+        self.page.locator('#change-output').click()
+        expect(self.page.locator('#toast')).to_contain_text('保留原来')
+        expect(self.page.locator('#output-path')).to_have_text(str(custom))
+        with patch('app.os.startfile', create=True) as open_folder:
+            self.page.locator('#open-output').click()
+            expect(self.page.locator('#open-output')).to_be_enabled()
+            open_folder.assert_called_with(str(custom))
+        self.page.locator('#reset-output').click()
+        expect(self.page.locator('#output-path')).to_have_text(str(self.root/'output'))
+
+    def test_moods_follow_actual_stages_without_false_progress(self):
+        from playwright.sync_api import expect
+        jobs = self.server.jobs
+        rows = [dict(course=code, status='pending', expected=None, papers=[], errors=[], message='等待处理') for code in ['CAN209','EEE211']]
+        jobs.update(active=True, results=rows, kind='export')
+        for phase,mood,moving in [('starting','starting',True),('waiting','idle',False),('searching','searching',True),
+                                  ('downloading','downloading',True),('validating','validating',True)]:
+            jobs.update(phase=phase, message=phase, current_course='CAN209')
+            expect(self.page.locator('body')).to_have_attribute('data-phase',phase)
+            expect(self.page.locator('#companion')).to_have_attribute('src',f'/assets/{mood}.png')
+            self.assertEqual(self.page.locator('#progress').evaluate('(node) => node.value'), 0)
+            animation = self.page.locator('#companion').evaluate('(node) => getComputedStyle(node).animationName')
+            self.assertEqual(animation != 'none',moving)
+        rows[0].update(status='complete',expected=1,papers=[{'name':'CAN209_2025_F.pdf','pages':3}])
+        rows[1].update(status='working',expected=6)
+        jobs.update(results=rows,phase='downloading')
+        expect(self.page.locator('#progress-count')).to_have_text('1 / 2 门')
+        for phase in ('error','review','cancelled'):
+            jobs.update(active=False,phase=phase)
+            expect(self.page.locator('body')).to_have_attribute('data-phase',phase)
+            self.assertEqual(self.page.locator('#progress').evaluate('(node) => node.value'),1)
+            self.assertEqual(self.page.locator('#companion').evaluate('(node) => getComputedStyle(node).animationName'),'none')
+        rows[1].update(status='complete',papers=[{'name':'EEE211_2025_F.pdf','pages':2}],expected=1)
+        jobs.update(results=rows,phase='done')
+        expect(self.page.locator('#companion')).to_have_attribute('src','/assets/success.png')
+        expect(self.page.locator('#progress-count')).to_have_text('2 / 2 门')
+        expect(self.page.locator('#open-results')).to_be_visible()
+        self.assertEqual(self.errors, [])
+
+    def test_partial_failure_is_visible_and_retry_resets_progress(self):
+        from playwright.sync_api import expect
+        def runner(script,args,consume):
+            if script == 'login.py': return 0
+            consume('共发现 2 套试卷')
+            consume('✓ CAN209_2025_F.pdf（3 页，已校验）')
+            consume('✗ 网站将试卷标记为封存')
+            return 1
+        self.server.jobs.runner = runner
+        self.page.locator('#courses').fill('CAN209');self.page.locator('#submit').click()
+        expect(self.page.locator('.result.partial')).to_have_count(1)
+        expect(self.page.locator('#phase')).to_have_text('需要核对')
+        expect(self.page.locator('#progress-count')).to_have_text('0 / 1 门')
+        expect(self.page.locator('#submit')).to_contain_text('重新整理')
+        self.server.jobs.runner = lambda *args: 1
+        self.page.locator('#submit').click()
+        expect(self.page.locator('#phase')).to_have_text('未完成')
+        expect(self.page.locator('.result.partial')).to_have_count(0)
+        expect(self.page.locator('#open-results')).to_be_hidden()
+
+    def test_cancel_button_reaches_cooperative_worker(self):
+        from playwright.sync_api import expect
+        release = threading.Event()
+        def runner(*args):
+            release.wait(4)
+            return 0
+        self.server.jobs.runner = runner
+        self.page.locator('#courses').fill('CAN209');self.page.locator('#submit').click()
+        try:
+            expect(self.page.locator('#cancel')).to_be_visible()
+            self.page.locator('#cancel').click()
+            expect(self.page.locator('#phase')).to_have_text('正在停止')
+            self.assertTrue(self.server.jobs.cancel_requested.is_set())
+        finally:
+            release.set()
+        expect(self.page.locator('#phase')).to_have_text('已取消')
+        expect(self.page.locator('#submit')).to_be_enabled()
+        self.assertEqual(self.page.locator('#progress').evaluate('(node) => node.value'),0)
+
+    def test_reduced_motion_keyboard_focus_and_responsive_sizes(self):
+        from playwright.sync_api import expect
+        self.page.emulate_media(reduced_motion='reduce')
+        self.server.jobs.update(active=True,phase='downloading')
+        expect(self.page.locator('body')).to_have_attribute('data-phase','downloading')
+        self.assertEqual(self.page.locator('#companion').evaluate('(node) => getComputedStyle(node).animationName'),'none')
+        self.server.jobs.update(active=False,phase='idle')
+        expect(self.page.locator('#submit')).to_be_enabled()
+        self.page.locator('#courses').focus()
+        self.page.keyboard.press('Tab')
+        expect(self.page.locator('input[value="2"]')).to_be_focused()
+        self.page.keyboard.press('ArrowRight')
+        expect(self.page.locator('input[value="3.125"]')).to_be_checked()
+        for width in (320,375,740,960,1440):
+            self.page.set_viewport_size({'width':width,'height':900})
+            self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width)
         self.assertEqual(self.errors, [])
 
 
