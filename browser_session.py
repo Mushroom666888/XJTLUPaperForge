@@ -20,24 +20,18 @@ import ctypes
 from contextlib import contextmanager
 
 from settings import SESSION_FILE as _SESSION_PATH
+from settings import BROWSER_KIND
+from browser_config import detect_browsers, NAMES
 
 SESSION_FILE = str(_SESSION_PATH)
 
 
 def _find_chrome():
-    candidates = [
-        shutil.which("chrome"),
-        os.path.join(os.environ.get("PROGRAMFILES", ""),
-                     "Google", "Chrome", "Application", "chrome.exe"),
-        os.path.join(os.environ.get("PROGRAMFILES(X86)", ""),
-                     "Google", "Chrome", "Application", "chrome.exe"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""),
-                     "Google", "Chrome", "Application", "chrome.exe"),
-    ]
-    for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-    raise RuntimeError("未找到 Google Chrome，请先安装 Chrome。")
+    # Retain the legacy helper name for callers; all supported choices speak CDP.
+    selected = detect_browsers().get(BROWSER_KIND)
+    if selected:
+        return selected
+    raise RuntimeError(f'未找到 {NAMES[BROWSER_KIND]}。请打开工作台选择其他浏览器或安装 Chrome。')
 
 
 def _reserve_port():
@@ -49,7 +43,8 @@ def _reserve_port():
 def _wait_for_debug_port(process, port, timeout=20):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if process.poll() is not None:
+        # Edge's small launcher may exit 0 while its browser child is still starting.
+        if process.poll() not in (None, 0):
             raise RuntimeError("Chrome 在调试接口就绪前退出。")
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.25):
@@ -94,6 +89,18 @@ def write_session(port, pid, user_data_dir):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, SESSION_FILE)
+
+
+def record_browser_process(browser, port, user_data_dir):
+    """Record the actual browser PID, including Edge's separate launcher child."""
+    session = browser.new_browser_cdp_session()
+    try:
+        processes = session.send('SystemInfo.getProcessInfo')['processInfo']
+        pid = next(int(process['id']) for process in processes if process['type'] == 'browser')
+        write_session(port, pid, user_data_dir)
+        return pid
+    finally:
+        session.detach()
 
 
 def read_session():
@@ -272,12 +279,26 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
     finally:
         if browser is not None:
             try:
-                browser.close()  # CDP 断开，触发 Chrome 优雅退出（flush cookie/localStorage）
+                # This context owns the browser. Close it explicitly; disconnecting
+                # CDP alone can leave an Edge child behind after its launcher exits.
+                browser.new_browser_cdp_session().send('Browser.close')
+            except Exception:
+                pass
+            try:
+                browser.close()
             except Exception:
                 pass
         _terminate_process_tree(process)
         if cleanup_profile:
-            shutil.rmtree(profile_dir, ignore_errors=True)
+            # Owned temporary profile only. Browser.close may finish asynchronously.
+            deadline = time.monotonic() + 3
+            while os.path.isdir(profile_dir):
+                try:
+                    shutil.rmtree(profile_dir)
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('临时浏览器资料仍被占用，请关闭测试浏览器后重试。')
+                    time.sleep(.1)
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -80,6 +80,8 @@ py -3.12 install.py
 
 ## 命令行与开发
 
+本地兼容性验证分支新增 Claude Code 安装入口、Chrome 缺失时的浏览器选择，以及 `doctor.py` 本机诊断。完整支持范围、实际测试与未验证边界见 [COMPATIBILITY.md](COMPATIBILITY.md)。这部分尚未发布，学校网站恢复后还需要真实登录和下载验收。
+
 ```powershell
 # 手动登录
 .\.venv\Scripts\python.exe login.py

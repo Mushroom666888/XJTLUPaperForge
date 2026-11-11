@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from browser_config import preferred_browser, NAMES
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / '.env')
@@ -23,5 +24,8 @@ DATA_ROOT = _path_setting(
     Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'XJTLUPaperForge',
 )
 WORK_ROOT = DATA_ROOT / 'work' / 'captures'
-PROFILE_DIR = DATA_ROOT / 'chrome_profile'
-SESSION_FILE = DATA_ROOT / '.browser_session.json'
+BROWSER_KIND = os.environ.get('XJTLUPAPERFORGE_BROWSER') or preferred_browser(DATA_ROOT) or 'chrome'
+if BROWSER_KIND not in NAMES:
+    raise ValueError('Unsupported XJTLUPAPERFORGE_BROWSER value.')
+PROFILE_DIR = DATA_ROOT / f'{BROWSER_KIND}_profile'
+SESSION_FILE = DATA_ROOT / ('.browser_session.json' if BROWSER_KIND == 'chrome' else f'.browser_session-{BROWSER_KIND}.json')

@@ -23,6 +23,7 @@ let pending = false;
 let offline = false;
 let latestState = null;
 let lastResults = '';
+let lastBrowserInfo = '';
 let refreshSequence = 0;
 let toastTimer;
 function error(message, invalidInput = false) {
@@ -53,7 +54,9 @@ async function api(path, body) {
 }
 function controls() {
   const busy = pending || stopped || offline || !latestState || latestState.active || latestState.folder_busy;
-  ['submit', 'login', 'change-output', 'reset-output', 'quit', 'courses'].forEach(id => { $(id).disabled = Boolean(busy); });
+  ['submit', 'login', 'change-output', 'reset-output', 'quit', 'courses', 'browser-choice', 'save-browser'].forEach(id => { $(id).disabled = Boolean(busy); });
+  if (latestState?.browser && !latestState.browser.selected) { $('submit').disabled = true; $('login').disabled = true; }
+  if (!$('browser-choice').value) $('save-browser').disabled = true;
   document.querySelectorAll('input[name="quality"]').forEach(input => { input.disabled = Boolean(busy); });
   $('open-output').disabled = pending || stopped || offline || !latestState;
   $('open-results').disabled = pending || stopped || offline;
@@ -86,6 +89,8 @@ $('export-form').addEventListener('submit', async event => {
   });
 });
 $('login').addEventListener('click', () => action('/api/login'));
+$('browser-choice').addEventListener('change', controls);
+$('save-browser').addEventListener('click', () => action('/api/browser', {browser:$('browser-choice').value}, () => toast('浏览器已选择，接下来会在其中登录学校账号。')));
 $('cancel').addEventListener('click', () => action('/api/cancel'));
 $('open-output').addEventListener('click', () => action('/api/open-output'));
 $('open-results').addEventListener('click', () => action('/api/open-output', {job:true}));
@@ -125,6 +130,22 @@ function renderResults(rows) {
 }
 function render(state) {
   latestState = state;
+  const browser = state.browser;
+  if (browser) {
+    $('browser-fallback').hidden = browser.chrome_available;
+    const serialized = JSON.stringify(browser);
+    if (serialized !== lastBrowserInfo) {
+      lastBrowserInfo = serialized;
+      $('browser-choice').replaceChildren(element('option', '', '请选择浏览器'), ...browser.choices.map(choice => {
+        const option = element('option', '', choice.name); option.value = choice.id; return option;
+      }));
+      $('browser-choice').firstElementChild.value = '';
+      $('browser-choice').value = browser.selected || '';
+      $('browser-help').textContent = browser.choices.length ?
+        (browser.selected ? `当前使用 ${browser.name}。检测到 Chrome 后会自动优先使用 Chrome。` : '请选择已安装的兼容浏览器，学校账号需要在该浏览器重新登录。') :
+        '还没有检测到兼容浏览器。请安装 Chrome 后刷新；Firefox 和 Safari 暂不支持后台试卷读取。';
+    }
+  }
   controls();
   const phase = state.phase;
   const [mood, title, label] = moods[phase] || moods.idle;

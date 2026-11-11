@@ -29,13 +29,16 @@ from browser_session import (
     clear_session,
     launch_detached_chrome,
     terminate_pid_tree,
+    record_browser_process,
 )
 from capture_canvas import BASE_URL, SPECIAL_PROFILE, login, _is_logged_in
 from task_events import emit, check_cancelled
 
 
 def _connect(playwright, port):
-    return playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+    browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+    record_browser_process(browser, port, SPECIAL_PROFILE)
+    return browser
 
 
 def _first_page(context):

@@ -1,6 +1,6 @@
 ---
 name: xjtlu-paperforge
-description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西交利物浦大学 XJTLU 课程编号并导出校验过的 PDF。用于调用、安装、迁移此应用，以及用户明确要求的课程批量导出。"
+description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西交利物浦大学 XJTLU 课程编号并导出校验过的 PDF。用于在支持终端和本地文件的 Skill 工具中安装、调用、迁移应用，以及用户明确要求的批量导出。"
 ---
 
 # XJTLUPaperForge
@@ -8,6 +8,8 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 ## 默认：打开应用
 
 用户说“调用这个 skill”“打开试卷工作台”或希望在界面输入课程时，直接运行本 skill 目录中的 `scripts/launch.py`，不要先在聊天里追问课程编号。
+
+这是普通 `SKILL.md` 加 Python 启动器，不调用 Codex 专有 API。Codex 可用 `$xjtlu-paperforge`；Claude Code 可用 `/xjtlu-paperforge`。其他工具必须具备本机终端、文件访问和本地浏览器能力；纯聊天或云端沙箱不能因此控制用户电脑，不能承诺仅上传本 Skill 就会弹出本机界面。
 
 用系统 Python 3.10+ 执行启动器；它只依赖标准库，会根据安装记录定位项目，调用该项目的独立虚拟环境，启动本机网页界面，并检查服务就绪。成功时返回本地地址；不要只根据进程已创建就宣称界面可用。把该地址提供给用户，并说明在界面填写课程编号即可。
 
@@ -17,7 +19,9 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 
 ## 安装与迁移
 
-安装由下载仓库中的 `install.py` 完成。用户要求装配已下载项目时，阅读该项目 `README.md`，运行 `py -3.12 install.py`（或可用 Python 3.10+）。这会创建 `.venv`、安装依赖并注册本 skill。当前产品支持 Windows 10/11 和系统 Google Chrome。
+安装由下载仓库中的 `install.py` 完成。用户要求装配已下载项目时，阅读该项目 `README.md`，运行 `py -3.12 install.py`（或可用 Python 3.10+）。默认注册到 Codex；Claude Code 使用 `install.py --agent claude`。其他兼容工具可用 `--skills-dir` 指定其 Skill 目录。已有完整环境时可加 `--skills-only` 仅注册。当前已支持的平台仍为 Windows 10/11，不把浏览器路径检测当作 macOS/Linux 完整支持。
+
+默认优先 Google Chrome。只有找不到 Chrome 时，工作台才显示已安装的 Edge、Brave 或 Chromium 供用户选择；每种浏览器使用独立登录资料。Firefox/Safari 不能用于当前 CDP 试卷读取引擎。网页工作台的显示浏览器与后台学校登录浏览器是两个概念。
 
 安装位置记录在已安装 skill 的 `installation.json`，不在源码包里写死。`XJTLUPAPERFORGE_HOME` 可覆盖位置；项目移动后重新运行 `install.py` 更新记录。启动器找不到项目或环境时，报告具体问题并在已知下载位置重新装配，不依赖原开发者的 D 盘目录。
 
@@ -38,7 +42,7 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 
 ## 数据与质量边界
 
-- 默认试卷在项目父目录的 `XJTLUPaperForge-Output/课程编号/`，仅包含 PDF；运行资料在 `%LOCALAPPDATA%\XJTLUPaperForge`。实际位置以 `settings.py` 读取的 `.env` 或环境变量 `XJTLUPAPERFORGE_OUTPUT`、`XJTLUPAPERFORGE_DATA` 为准。
+- 默认试卷在项目父目录的 `XJTLUPaperForge-Output/课程编号/`，仅包含 PDF；运行资料在 `%LOCALAPPDATA%\XJTLUPaperForge`。网页保存位置可通过系统选择器更改并持久化，实际位置以界面为准。命令行默认目录由 `.env` / `XJTLUPAPERFORGE_OUTPUT` 决定，网页任务会传递本次冻结的目录。
 - 发布或维护仓库时只收录代码、测试、依赖说明、前端及 skill；不收录真实试卷、个人下载清单、`.env`、Cookie、浏览器资料、运行日志或已安装 skill 的 `installation.json`。不自动迁移其他程序的试卷或登录状态。
 - 网站封存且没有 `View Online` 入口时说明状态，不因日期已过而猜测开放。持续网络超时后保留会话，等待恢复，避免无休止重试。
 - 不降低检查标准来宣布成功，不猜缺失页数或考试类型，不插值放大冒充高清。用户要求恢复旧备份时单独核验并披露来源、原始分辨率。
@@ -47,3 +51,5 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 ## 维护
 
 阅读项目根目录 `AGENTS.md` 与 `README.md`。`legacy/capture.py` 仅供查阅，产品入口为 `app.py`，批处理入口为 `batch_capture.py`。修改程序后运行 unittest 和 pip check；测试使用合成页面，不需要真实试卷。修改 skill 后重新运行 `install.py` 同步安装副本并用 skill-creator 验证器检查。不要仅为改品牌而更改已有 PDF 校验格式标识。
+
+兼容性排查：用项目虚拟环境运行 `doctor.py --json`，并阅读项目根目录 `COMPATIBILITY.md`。诊断只检查本机能力，不能替代学校登录/下载端到端验收；遇到网站关闭如实报告，不自动进行无期限重试。

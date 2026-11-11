@@ -1,4 +1,4 @@
-"""Install this checkout and register its location as a local Codex skill."""
+"""Install this checkout and register its location with a local skill host."""
 
 import argparse
 import json
@@ -37,27 +37,38 @@ def install_skill(project, skills_dir):
     return destination
 
 
+def default_skills_dir(agent):
+    if agent == 'claude':
+        return Path.home() / '.claude' / 'skills'
+    return Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'skills'
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Install XJTLUPaperForge and its Codex skill.')
-    parser.add_argument('--skills-dir', type=Path, help='Override the Codex skills directory')
+    parser = argparse.ArgumentParser(description='Install XJTLUPaperForge and its local skill.')
+    parser.add_argument('--agent', choices=('codex','claude'), default='codex', help='Skill host (default: codex)')
+    parser.add_argument('--skills-dir', type=Path, help='Explicit skill directory for any compatible local agent')
+    parser.add_argument('--skills-only', action='store_true', help='Register an already assembled checkout without reinstalling dependencies')
     args = parser.parse_args()
     if sys.version_info < (3, 10):
         raise SystemExit('Python 3.10 or newer is required; Python 3.12 is recommended.')
     if os.name != 'nt':
         raise SystemExit('This release supports Windows 10/11 with Google Chrome.')
     interpreter = python_path(PROJECT_ROOT)
+    if args.skills_only and not interpreter.is_file():
+        raise SystemExit('Assemble the project first; --skills-only requires an existing .venv.')
     if not interpreter.is_file():
         print('[1/3] Creating a private Python environment...', flush=True)
         venv.EnvBuilder(with_pip=True).create(PROJECT_ROOT / '.venv')
-    print('[2/3] Installing dependencies...', flush=True)
-    subprocess.run([str(interpreter), '-m', 'pip', 'install', '-r', str(PROJECT_ROOT / 'requirements.txt')], check=True)
-    subprocess.run([str(interpreter), '-m', 'pip', 'check'], check=True)
-    codex_root = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
-    skills_dir = (args.skills_dir or codex_root / 'skills').expanduser().resolve()
+    if not args.skills_only:
+        print('[2/3] Installing dependencies...', flush=True)
+        subprocess.run([str(interpreter), '-m', 'pip', 'install', '-r', str(PROJECT_ROOT / 'requirements.txt')], check=True)
+        subprocess.run([str(interpreter), '-m', 'pip', 'check'], check=True)
+    skills_dir = (args.skills_dir or default_skills_dir(args.agent)).expanduser().resolve()
     installed = install_skill(PROJECT_ROOT, skills_dir)
     print('[3/3] Registered the xjtlu-paperforge skill.', flush=True)
     print(f'Program: {PROJECT_ROOT}\nSkill: {installed}')
-    print('Open a new Codex chat and ask: Use $xjtlu-paperforge to open the paper app.')
+    invocation = '/xjtlu-paperforge' if args.agent == 'claude' else '$xjtlu-paperforge'
+    print(f'In your local agent, use {invocation} to open the paper app.')
     print(f'Or run directly: "{interpreter}" "{PROJECT_ROOT / "app.py"}" --open')
 
 

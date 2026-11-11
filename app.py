@@ -17,6 +17,7 @@ import webbrowser
 from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
 from output_preferences import OutputPreferences, choose_directory, validate_directory, course_directory
 from task_events import PREFIX, TaskCancelled
+from browser_config import BrowserPreferences
 
 APP_NAME = 'XJTLUPaperForge'
 COURSE_RE = re.compile(r'[A-Z]{3}\d{3}[A-Z]{0,2}')
@@ -57,11 +58,13 @@ def public_error(line):
 
 
 class Jobs:
-    def __init__(self, runner=None, preferences=None, picker=None):
+    def __init__(self, runner=None, preferences=None, picker=None, browsers=None):
         self.lock = threading.RLock()
         self.runner = runner or self.run_script
         self.preferences = preferences or OutputPreferences()
         self.picker = picker or choose_directory
+        self.browsers = browsers or BrowserPreferences(self.preferences.file.parent)
+        self.job_browser = None
         self.cancel_requested = threading.Event()
         self.cancel_file = None
         self.state = {'active': False, 'phase': 'idle', 'message': '想找哪门课？我来帮你整理。',
@@ -73,11 +76,18 @@ class Jobs:
 
     def snapshot(self):
         with self.lock:
-            return json.loads(json.dumps(self.state))
+            return json.loads(json.dumps(dict(self.state, browser=self.browsers.info())))
 
     def update(self, **values):
         with self.lock:
             self.state.update(values)
+
+    def select_browser(self, key):
+        with self.lock:
+            if self.state['active'] or self.state['folder_busy']:
+                raise RuntimeError('请先结束当前任务或文件夹选择。')
+            self.browsers.select(key)
+            self.state['login_ready'] = False
 
     def change_output(self, reset=False):
         with self.lock:
@@ -98,6 +108,7 @@ class Jobs:
         with self.lock:
             if self.state['active'] or self.state['folder_busy']:
                 raise RuntimeError('已有任务或文件夹选择正在进行，请稍候。')
+            self.job_browser = self.browsers.require()
             output = validate_directory(self.preferences.path,
                                         create=self.preferences.path == self.preferences.default)
             self.cancel_requested.clear()
@@ -107,7 +118,7 @@ class Jobs:
             self.state.update(active=True, phase='starting', finished=0, kind=kind,
                               current_course='', current_file='', pages_done=0, pages_total=None,
                               retrying=False, job_output_dir=str(output), output_dir=str(output),
-                              message='正在连接学校；如弹出登录页面，请在 Chrome 中完成登录。')
+                              message=f'正在连接学校；如弹出登录页面，请在 {self.browsers.info()["name"]} 中完成登录。')
             self.state['results'] = [dict(course=code, status='pending', expected=None,
                                          papers=[], errors=[], message='等待处理') for code in (courses or [])]
             threading.Thread(target=self.work, args=(kind, courses or [], scale), daemon=True).start()
@@ -132,6 +143,8 @@ class Jobs:
         environment = dict(os.environ, PYTHONUTF8='1', PYTHONUNBUFFERED='1',
                            XJTLUPAPERFORGE_EVENTS='1',
                            XJTLUPAPERFORGE_OUTPUT=self.state['job_output_dir'] or self.state['output_dir'])
+        if self.job_browser:
+            environment['XJTLUPAPERFORGE_BROWSER'] = self.job_browser
         if self.cancel_file:
             environment['XJTLUPAPERFORGE_CANCEL_FILE'] = str(self.cancel_file)
         command = [sys.executable, '-u', str(PROJECT_ROOT / script), *args]
@@ -327,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.jobs.start('login')
             elif self.path == '/api/cancel':
                 self.server.jobs.cancel()
+            elif self.path == '/api/browser':
+                self.server.jobs.select_browser(payload.get('browser'))
             elif self.path in ('/api/output/select', '/api/output/reset'):
                 changed = self.server.jobs.change_output(reset=self.path.endswith('/reset'))
                 return self.send(200, {'ok': True, 'changed': changed})

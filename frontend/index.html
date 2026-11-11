@@ -43,6 +43,13 @@
         <section class="composer" aria-labelledby="form-title">
           <div class="section-heading"><h2 id="form-title">开始一份新归档</h2><span class="muted small">支持多门课程</span></div>
           <form id="export-form" novalidate>
+            <section id="browser-fallback" class="browser-fallback" hidden aria-labelledby="browser-label">
+              <h3 id="browser-label">未检测到 Chrome</h3>
+              <p id="browser-help">可以选择已安装的兼容浏览器，学校账号需要在该浏览器重新登录。</p>
+              <label class="field-label" for="browser-choice">用于学校登录与试卷读取</label>
+              <select id="browser-choice" aria-describedby="browser-help"><option value="">请选择浏览器</option></select>
+              <button id="save-browser" type="button" class="secondary">使用此浏览器</button>
+            </section>
             <label class="field-label" for="courses">课程编号</label>
             <input id="courses" name="courses" placeholder="例如 CAN209、EEE211" autocomplete="off" spellcheck="false" aria-describedby="course-help error" maxlength="300" required>
             <p class="field-help" id="course-help">用空格或逗号分隔，最多 20 门。大小写都可以。</p>
