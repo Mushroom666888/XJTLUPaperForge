@@ -28,7 +28,7 @@ def wait_finished(jobs):
 class PreferenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.default = self.root / 'default'
         self.custom = self.root / '试卷 archive'
         self.custom.mkdir()
@@ -209,7 +209,7 @@ class ProgressTests(unittest.TestCase):
 
 class OutputApiTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name).resolve()
         self.custom = self.root/'selected'; self.custom.mkdir()
         self.jobs = Jobs(lambda *a: 0, OutputPreferences(self.root/'settings.json',self.root/'default'), lambda _:str(self.custom))
         self.server = Server(jobs=self.jobs)

@@ -29,7 +29,7 @@ def make_pages(folder):
 class PdfQualityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         make_pages(self.root)
         self.pdf = self.root / 'exam.pdf'
 
@@ -169,7 +169,7 @@ class BrowserExportTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.output_patch = patch.object(pdf_output, 'OUTPUT_ROOT', self.root / 'output')
         self.work_patch = patch.object(pdf_output, 'WORK_ROOT', self.root / 'scratch')
         self.output_patch.start()

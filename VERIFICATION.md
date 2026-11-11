@@ -14,6 +14,8 @@ git diff --check
 
 The redesign was checked on Windows with installed Google Chrome: 72 tests passed, dependency consistency passed, and Git whitespace validation passed. After the user's change to seven expressions, the 16 application/API/browser tests were repeated and passed. No original tests were removed or weakened.
 
+The first GitHub runner exposed Windows short-name aliases in its temporary directory (`RUNNER~1` versus the canonical profile name). Fixtures now normalize their temporary roots before comparing them to the application's resolved output paths; the full destination and file-preservation assertions remain intact. CI uses UTF-8 for readable Chinese diagnostics.
+
 Coverage includes course normalization/deduplication, empty/invalid input, both quality modes, authenticating/searching/downloading/validating UI states, full and partial success, failure, zero results, cooperative cancellation/retry, reduced motion, keyboard radio/focus behavior, and 320–1440px layout widths. Browser tests assert no page JavaScript exceptions.
 
 Directory tests cover the default, native-picker selection and cancellation (injected returns in automation), real write probes, permission errors, invalid Windows names, missing directories, persistent preferences, atomic-save failures, junction escape rejection, frozen job paths, concurrent selection/start rejection, child process environment propagation, and opening the current versus last-job directory.

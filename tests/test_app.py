@@ -150,7 +150,7 @@ class FrontendTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.calls = []
         def runner(script, args, consume):
             self.calls.append((script, args))
