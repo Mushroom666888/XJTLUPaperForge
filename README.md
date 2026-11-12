@@ -25,9 +25,11 @@ py -3.12 install.py
 
 要求：**Python 3.10+（推荐 3.12）和图形桌面**。Windows 10/11 已通过真实学校流程验收；此分支增加 macOS / Linux **预览适配**，尚未通过这两种系统上的学校登录和真实试卷验收。默认优先 Google Chrome；仅在未检测到 Chrome 时，界面才提供已安装的兼容浏览器选项。安装依赖需要联网；使用时需要能够打开学校试卷库。实际验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
-macOS / Linux 预览版在项目目录运行：
+macOS / Linux 预览版在 `compat/macos-linux` 分支，可下载该分支 ZIP，或克隆后安装：
 
 ```sh
+git clone --branch compat/macos-linux https://github.com/Mushroom666888/XJTLUPaperForge.git
+cd XJTLUPaperForge
 python3 install.py
 .venv/bin/python skill/xjtlu-paperforge/scripts/launch.py
 ```

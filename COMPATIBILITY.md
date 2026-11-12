@@ -66,6 +66,8 @@ python3 install.py                         # optional: --agent claude
 
 The CI matrix assembles clean Windows/macOS/Ubuntu checkouts and requires a detected Chrome. It runs real headless browser capture and PDF verification against synthetic pages, both installed agent-directory launchers, and the browser form → local API → child worker → custom-directory PDF flow. macOS also compiles the actual picker AppleScript; POSIX runners exercise termination of a real disposable process in its own session. These checks do not log in to the school or display native folder dialogs. Run-specific results are recorded in [VERIFICATION.md](VERIFICATION.md).
 
+At code commit `12b4e28`, [all three native CI jobs passed](https://github.com/Mushroom666888/XJTLUPaperForge/actions/runs/43158007784): macOS ARM64 115/115; Ubuntu x86_64 114 passed plus one macOS-only skip; Windows x64 113 passed plus two POSIX/macOS-only skips. Each ran real Chrome and Edge synthetic PDF flows. This establishes the tested runtime/install paths, while the preview boundary above remains.
+
 ## Runtime distribution
 
 The current source/Skill distribution requires an installed Python 3.10+; it does not yet bundle an interpreter. The intended portable package can carry its own runtime while retaining the same Skill, workbench, browser and PDF pipeline. Existing source installation and command-line entry points should remain available. Such a package is not currently shipped or claimed tested.

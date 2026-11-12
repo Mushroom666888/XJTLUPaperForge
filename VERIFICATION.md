@@ -68,6 +68,18 @@ The `compat/macos-linux` branch adds platform adapters without changing search, 
 
 New adapter tests cover user-data locations, relative XDG fallback, missing Linux graphical sessions, native picker selection/cancellation/errors, path argument isolation, file-manager errors and process-group ownership. The existing output-persistence, invalid/unwritable-path, path-freezing, no-overwrite and PDF corruption checks remain in the full suite. Native chooser and file-manager behavior is mocked in these Windows adapter tests, not claimed as interactive macOS/Linux evidence.
 
-The GitHub workflow now assembles clean checkouts on Windows, macOS and Ubuntu and requires actual Chrome detection before running the suite. Results are recorded after the jobs complete. School SSO, real school downloads, native folder-dialog UX and packaged runtimes on macOS/Linux remain unverified. No self-contained Python distribution is included in this preview.
+The GitHub workflow assembles clean checkouts on Windows, macOS and Ubuntu and requires actual Chrome detection before running the suite. School SSO, real school downloads, native folder-dialog UX and packaged runtimes on macOS/Linux remain unverified. No self-contained Python distribution is included in this preview.
 
 Initial native CI exposed two reproducible failures. macOS ARM64 stalled in `HTTPServer.server_bind → socket.getfqdn`; the loopback server now binds without reverse DNS, with a regression that rejects any such lookup. Ubuntu's packaged Edge aborted because its SUID sandbox helper lacked the required permissions. CI verifies that the official `microsoft-edge-stable` package owns the exact helper before restoring root ownership and mode 4755. This repair is confined to the disposable runner; the application does not change user-system permissions or disable browser sandboxing. Browser test assertions and launch timeouts were retained.
+
+After those corrections, [GitHub run 43158007784](https://github.com/Mushroom666888/XJTLUPaperForge/actions/runs/43158007784) passed for code commit `12b4e28a801f1eab8f4c48b59aec734c310bfa30`:
+
+| Native runner | Result | Duration | Skips |
+| --- | --- | --- | --- |
+| Windows Server 2025 x64 | 113 passed / 115 discovered | 124.290s | macOS AppleScript, POSIX process groups |
+| macOS 26 ARM64 | 115 passed / 115 discovered | 212.914s | None |
+| Ubuntu x86_64 | 114 passed / 115 discovered | 131.418s | macOS AppleScript |
+
+All three jobs installed from a clean checkout, passed dependency consistency, ran both real Chrome and Edge against synthetic documents, and launched real local servers through the Codex/Claude-directory Skill installers. macOS compiled the picker AppleScript; macOS and Linux exercised a real disposable POSIX process group. No browser flow was skipped in these final jobs. The Windows app/API/frontend and adversarial suites were also repeated locally after the startup fix: **31 tests passed**.
+
+These results do not establish Intel Mac, Linux ARM, every distribution or sandboxed browser package, native Claude/Doubao/DeepSeek client discovery, or real-school acceptance on macOS/Linux. The source installer, command-line tools and existing Skill workflow remain available; a future bundled-Python distribution is a separate delivery layer.
