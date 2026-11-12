@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+from socketserver import TCPServer
 import subprocess
 import sys
 import threading
@@ -288,6 +289,12 @@ class Jobs:
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer's getfqdn() can block on macOS DNS before any request.
+        # This loopback service needs only its bound address, never a DNS name.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def __init__(self, address=('127.0.0.1', 0), jobs=None):
         self.jobs = jobs or Jobs()

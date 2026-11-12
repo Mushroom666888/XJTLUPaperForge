@@ -14,6 +14,15 @@ from install import install_skill
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_local_server_starts_without_hostname_resolution(self):
+        with patch('socket.getfqdn', side_effect=AssertionError('DNS must not block local startup')):
+            server = Server()
+            try:
+                self.assertEqual(server.server_name, '127.0.0.1')
+                self.assertGreater(server.server_port, 0)
+            finally:
+                server.server_close()
+
     def test_courses_are_normalized_and_invalid_inputs_rejected(self):
         self.assertEqual(validate_export({'courses': [' abc123 ', 'ABC123', 'DEF456'], 'scale': 3.125}),
                          (['ABC123', 'DEF456'], 3.125))
