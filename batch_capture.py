@@ -92,7 +92,7 @@ def _wait_for_pdf_viewer(detail_page, owned_pages, timeout=60):
     raise RuntimeError(f"PDF 阅读器未在 {timeout} 秒内加载完成，请检查学校网站后重试。")
 
 
-def extract_one_paper(context, exam_tab, paper, scale, course_code):
+def extract_one_paper(context, exam_tab, paper, scale, course_code, paper_names=None):
     owned_pages = []
     paper_name, output_file, page_count = "", "", 0
     try:
@@ -104,6 +104,7 @@ def extract_one_paper(context, exam_tab, paper, scale, course_code):
         detail.on("popup", lambda popup: owned_pages.append(popup))
         detail.set_viewport_size(VIEWPORT)
         detail.goto(paper.href, wait_until="domcontentloaded")
+        check_cancelled()
         view_button = detail.get_by_text("View Online", exact=True)
         embargo = detail.get_by_text(re.compile(r"Access to this file is embargoed until", re.I))
         view_button.or_(embargo).first.wait_for(state="visible", timeout=15000)
@@ -117,11 +118,18 @@ def extract_one_paper(context, exam_tab, paper, scale, course_code):
         code, year, exam_type = resolve_paper_metadata(
             paper.text, paper.site_text, detail_text, viewer, course_code,
         )
+        if code != course_code:
+            raise ValueError("试卷课程编号与请求不一致，未发布文件。")
         if exam_type not in {"F", "R"}:
             raise ValueError("无法从网站或封面确认考试类型，未猜测为期末，未发布文件。")
         if year == "unknown":
             year = f"idx{paper.page_num:02d}_{paper.index:02d}"
         paper_name = f"{code}_{year}_{exam_type}"
+        if paper_names is not None:
+            previous = paper_names.get(paper_name)
+            if previous is not None and previous != paper.href:
+                raise ValueError("不同试卷的归档名称冲突，未将旧文件当作另一份试卷复用。")
+            paper_names[paper_name] = paper.href
         page_count = detect_total_pages(viewer)
         emit('paper', name=paper_name + '.pdf')
         emit('phase', phase='downloading')
@@ -163,19 +171,19 @@ def batch_capture(course_code, scale=2.0, headless=False):
                     print(f"未找到 {course_code} 的试卷。")
                     return True
                 print(f"共发现 {len(papers)} 套试卷，开始导出 PDF。")
-                results = []
+                results, paper_names = [], {}
                 for index, paper in enumerate(papers, 1):
                     check_cancelled()
                     emit('phase', phase='downloading')
                     emit('paper', name=f'试卷 {index} / {len(papers)}', retry=False)
                     print(f"\n[{index}/{len(papers)}] {paper.text}")
-                    result = extract_one_paper(context, exam_tab, paper, scale, course_code)
-                    if not result.success and "标记为封存" not in (result.error or ""):
+                    result = extract_one_paper(context, exam_tab, paper, scale, course_code, paper_names)
+                    if not result.success and not any(reason in (result.error or "") for reason in ("标记为封存", "名称冲突", "课程编号与请求不一致")):
                         check_cancelled()
                         emit('phase', phase='downloading')
                         emit('paper', name=result.paper_name + '.pdf' if result.paper_name else f'试卷 {index}', retry=True)
                         print(f"  首次未完成，重新尝试一次: {result.error}")
-                        result = extract_one_paper(context, exam_tab, paper, scale, course_code)
+                        result = extract_one_paper(context, exam_tab, paper, scale, course_code, paper_names)
                     results.append(result)
                     if result.success:
                         emit('verified', name=result.paper_name + '.pdf', pages=result.page_count)

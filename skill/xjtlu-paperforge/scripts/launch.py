@@ -15,8 +15,10 @@ def find_project(skill_root):
     if configured := os.environ.get('XJTLUPAPERFORGE_HOME'):
         candidates.append(Path(configured).expanduser())
     configuration = skill_root / 'installation.json'
-    if configuration.exists():
+    try:
         candidates.append(Path(json.loads(configuration.read_text(encoding='utf-8'))['project_root']))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # A valid explicit override or bundled checkout can still recover.
     candidates.append(skill_root.parent.parent)
     for candidate in candidates:
         if (candidate / 'app.py').is_file() and (candidate / 'settings.py').is_file():
@@ -56,15 +58,17 @@ def main():
     while time.monotonic() < deadline:
         try:
             state = json.loads((runtime / 'ui.json').read_text(encoding='utf-8'))
+            if not isinstance(state, dict):
+                raise ValueError('Invalid workbench state')
             port = int(state['port'])
             if state.get('project_root') == str(root) and 1 <= port <= 65535:
                 url = f'http://127.0.0.1:{port}'
                 with urlopen(url + '/health', timeout=1) as response:
                     health = json.load(response)
-                if health.get('app') == 'XJTLUPaperForge' and health.get('instance') == state.get('instance'):
+                if isinstance(health, dict) and health.get('app') == 'XJTLUPaperForge' and health.get('instance') == state.get('instance'):
                     print(f'XJTLUPaperForge is ready: {url}')
                     return
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             pass
         if process.poll() not in (None, 0):
             break

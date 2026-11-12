@@ -23,7 +23,7 @@ Codex 会运行安装脚本，创建独立 Python 环境，安装依赖，并把
 py -3.12 install.py
 ```
 
-要求：**Windows 10/11、Python 3.10+（推荐 3.12）、Google Chrome**。安装依赖需要联网；使用时需要能够打开学校试卷库。当前版本不支持 macOS/Linux。
+要求：**Windows 10/11、Python 3.10+（推荐 3.12）**。默认优先 Google Chrome；仅在未检测到 Chrome 时，界面才提供已安装的兼容浏览器选项。安装依赖需要联网；使用时需要能够打开学校试卷库。当前版本不支持 macOS/Linux，浏览器与 AI 工具的实际验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 ## 调用 skill，打开小界面
 
@@ -35,7 +35,7 @@ py -3.12 install.py
 
 1. 输入一个或多个课程编号，以空格或逗号分隔。
 2. 选择标准 192 DPI 或精细 300 DPI；需要时点击“更改位置”，通过系统文件夹选择器选择保存位置。
-3. 点击“开始整理试卷”。若弹出学校登录页面，在专用 Chrome 中手动登录，完成后自动继续。
+3. 点击“开始整理试卷”。若弹出学校登录页面，在专用浏览器中手动登录，完成后自动继续；默认使用 Chrome。
 4. 查看每门课程的结果，通过“打开本次归档”取走 PDF。
 
 账号密码直接填写在学校网页，不在 Codex 聊天或项目代码中保存。界面由本机服务提供，只监听 `127.0.0.1`，无需部署服务器或配置云端账户。新安装的 skill 若未出现在当前会话，开启新对话刷新。
@@ -70,6 +70,7 @@ py -3.12 install.py
 - 等待 PDF.js 完成目标缩放下的绘制，并检查画布尺寸，避免空白或旧尺寸页面。
 - 使用阅读器的真实总页数，检查连续页码、疑似空白/纯色页、完全重复页。
 - 将 PNG 无损嵌入 PDF，并逐页核对解码后的像素哈希、顺序、尺寸及有效 DPI。
+- 检查图片确实完整绘制在 PDF 页面上，拒绝缺失绘制指令、偏移、裁切或异常旋转的文件。
 - 整套通过校验后才发布最终文件；失败不会覆盖已有 PDF。重跑可复用达到本次分辨率要求的合格文件。
 - 新文件先在目标磁盘的临时目录内校验，再以禁止覆盖的方式发布，支持跨盘保存。如果已有同名文件损坏或分辨率不足，请选择另一个保存位置或自行移走旧文件；程序不会自动覆盖。
 - 按完整课程编号搜索，使用网站信息和封面 OCR 核对课程、学年及考试类型。`F` 为期末，`R` 为补考；未知学年用 `idx` 标记，需核对。
@@ -80,7 +81,7 @@ py -3.12 install.py
 
 ## 命令行与开发
 
-本地兼容性验证分支新增 Claude Code 安装入口、Chrome 缺失时的浏览器选择，以及 `doctor.py` 本机诊断。完整支持范围、实际测试与未验证边界见 [COMPATIBILITY.md](COMPATIBILITY.md)。这部分尚未发布，学校网站恢复后还需要真实登录和下载验收。
+Skill 使用普通 Markdown 和 Python 启动器，不依赖 Codex 专有 API。Claude Code 可用 `py -3.12 install.py --agent claude` 安装，再用 `/xjtlu-paperforge` 调用；其他具备本地终端和文件访问的 Skill 工具可通过 `--skills-dir` 指定安装目录。宿主客户端的实际验证范围见 [COMPATIBILITY.md](COMPATIBILITY.md)。`doctor.py --json` 可检查本机环境，但不会代替用户登录或测试学校下载。
 
 ```powershell
 # 手动登录
@@ -95,7 +96,7 @@ py -3.12 install.py
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-`--status` 只检查浏览器进程；`login.py` 才验证登录状态。程序使用已安装的 Google Chrome，不需要另装 Playwright 浏览器。
+`--status` 只检查浏览器进程；`login.py` 才验证登录状态。程序使用已安装的 Chrome 或所选兼容浏览器，不需要另装 Playwright 浏览器。
 
 | 文件 | 用途 |
 | --- | --- |
@@ -105,13 +106,15 @@ py -3.12 install.py
 | `settings.py` | 输出和运行资料路径 |
 | `output_preferences.py`、`folder_picker.py` | 原生目录选择、可写检查、偏好持久化 |
 | `task_events.py` | 实际阶段/页数事件与协作取消信号 |
-| `login.py`、`browser_session.py` | 手动登录和专用 Chrome 会话 |
+| `login.py`、`browser_session.py`、`browser_config.py` | Chrome 优先的浏览器选择、独立会话和手动登录 |
 | `batch_capture.py`、`capture_canvas.py` | 课程搜索、逐套读取页面 |
 | `pdf_output.py`、`pdf_quality.py`、`merge_png_to_pdf.py` | 无损生成、完整性校验及最终发布 |
 | `tests/` | 模拟网站、合成 PDF、接口和可迁移安装测试 |
 | `legacy/capture.py` | 原项目早期实现，仅供查阅 |
 
 GitHub Actions 会在 Windows 上运行测试。默认不提交 `.venv`、运行资料或个人配置。发布前可用 `git status` 检查待提交文件。
+
+审查方法与修复记录见 [AUDIT.md](AUDIT.md)，自动化及真实学校网站验收范围见 [VERIFICATION.md](VERIFICATION.md)。
 
 这是直接由 Python 提供的 HTML/CSS/JavaScript，无 npm 构建、TypeScript 或 ESLint 配置。浏览器测试使用系统 Chrome，覆盖真实 DOM、按钮、表情、减少动态效果、响应式布局和后端接口；PDF 集成测试用合成阅读器真正生成并验证文件。它们不等于学校网站端到端测试，后者需要有效学校会话和可用网络。界面插画来源及处理方式见 `frontend/assets/ASSETS.md`。
 

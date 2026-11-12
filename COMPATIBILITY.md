@@ -1,6 +1,6 @@
-# Compatibility validation — local branch
+# Compatibility validation
 
-This compatibility work is intentionally **not published** with the frontend release. The school site is closed; live-school login and download must be verified before promoting these changes.
+Windows with Chrome and Edge has been checked against the real school site on 2026-11-12, after the site reopened. Other agent clients and operating systems retain the explicit limits below; successful browser testing does not establish support for every host.
 
 ## Agent / model compatibility
 
@@ -39,6 +39,7 @@ The **workbench browser** displays a local HTML page. The **school browser** is 
 - Fallback selection passes a browser ID, never an arbitrary executable supplied by a webpage. Choices cannot change during an active task.
 - Each browser has its own profile and session file. A Chrome school session is never imported into Edge.
 - **Real Edge validation:** the existing capture/quality tests run in installed Edge. A complete browser form → local API → child Python process → real Edge → verified 300-DPI PDF → custom directory flow was executed against synthetic school pages. Chrome absence was simulated; Edge, subprocesses, files and PDF validation were real.
+- **Live-school validation (2026-11-12):** the user logged in separately in Chrome and Edge. The real workbench, API, subprocess, school search and export pipeline produced six PDFs / 61 pages in each browser: Chrome at 300 DPI, Edge at 192 DPI. Each run used its own temporary destination outside the repository. Only Chrome absence was injected to expose Edge's fallback control; school pages, authentication and document processing were not mocked. See [VERIFICATION.md](VERIFICATION.md).
 - Edge's launcher can exit before its browser child is ready. Startup now waits for the actual CDP endpoint; session recording obtains the browser PID, and owned temporary browsers are closed explicitly to avoid orphan children.
 - Brave/Chromium detection is implemented, but those browsers are not installed on this host and their full workflows are not claimed tested.
 - Firefox/Safari cannot replace the current Chromium CDP school-reading engine. The standard local workbench may render in them, but that was not tested here.
@@ -61,6 +62,6 @@ Concrete remaining porting work includes `os.startfile` folder opening, Windows 
 
 `doctor.py` is read-only and reports Python, supported OS, dependencies, detected browsers and skill bundle presence. It explicitly reports school login/export as untested. Automated tests cover Chrome priority, explicit fallback, invalid IDs, persistence, profile isolation, multiple agent installation locations, real launcher health, actual Edge rendering/capture and the synthetic full-stack flow. Skipping a missing browser is reported as a skip, never a pass for that browser.
 
-Final local verification on Windows with Python 3.12.10: **87 tests passed**, including Chrome and installed Edge; `pip check`, Skill frontmatter validation and Git whitespace checks passed. The running workbench was restarted through the installed Skill launcher, then checked in real Chrome: default Chrome selected, fallback controls hidden, `D:\XJTLUPaperForge-Output` restored, no page JavaScript errors. A running task keeps its chosen browser even if Chrome becomes available before it finishes.
+Final local verification on Windows with Python 3.12.10: **103 tests passed**, including Chrome and installed Edge; `pip check`, Skill frontmatter validation and Git whitespace checks passed. The running workbench was restarted through the installed Skill launcher, then checked in real Chrome: default Chrome selected, fallback controls hidden, `D:\XJTLUPaperForge-Output` restored, no page JavaScript errors. A running task keeps its chosen browser even if Chrome becomes available before it finishes.
 
-Before this local branch is published, restore school availability and verify a manual login plus a real course export in Chrome and Edge. macOS/Linux and uninstalled agent/browser clients remain separate unverified targets.
+macOS/Linux and uninstalled agent/browser clients remain separate unverified targets. A school-site redesign, authentication change or browser update may require renewed live validation; the automated suite uses synthetic pages and never downloads school papers in CI.

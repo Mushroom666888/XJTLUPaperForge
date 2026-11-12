@@ -11,6 +11,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 from urllib.request import urlopen
 import webbrowser
 
@@ -18,6 +19,7 @@ from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
 from output_preferences import OutputPreferences, choose_directory, validate_directory, course_directory
 from task_events import PREFIX, TaskCancelled
 from browser_config import BrowserPreferences
+from instance_lock import workbench_lock
 
 APP_NAME = 'XJTLUPaperForge'
 COURSE_RE = re.compile(r'[A-Z]{3}\d{3}[A-Z]{0,2}')
@@ -42,6 +44,10 @@ def validate_export(payload):
 
 
 def public_error(line):
+    if '名称冲突' in line:
+        return '不同试卷使用了相同归档名称，已保留原文件，请核对网站信息。'
+    if '课程编号与请求不一致' in line:
+        return '试卷课程编号与请求不一致，未将其他课程试卷归档。'
     if '封存' in line or 'embargoed' in line.lower():
         return '网站将部分试卷封存，当前没有阅读入口。'
     if '已有文件' in line or 'File exists' in line:
@@ -67,6 +73,7 @@ class Jobs:
         self.job_browser = None
         self.cancel_requested = threading.Event()
         self.cancel_file = None
+        self.closing = False
         self.state = {'active': False, 'phase': 'idle', 'message': '想找哪门课？我来帮你整理。',
                       'login_ready': False, 'results': [], 'output_dir': str(self.preferences.path),
                       'default_output_dir': str(self.preferences.default), 'job_output_dir': None,
@@ -84,14 +91,14 @@ class Jobs:
 
     def select_browser(self, key):
         with self.lock:
-            if self.state['active'] or self.state['folder_busy']:
+            if self.closing or self.state['active'] or self.state['folder_busy']:
                 raise RuntimeError('请先结束当前任务或文件夹选择。')
             self.browsers.select(key)
             self.state['login_ready'] = False
 
     def change_output(self, reset=False):
         with self.lock:
-            if self.state['active'] or self.state['folder_busy']:
+            if self.closing or self.state['active'] or self.state['folder_busy']:
                 raise RuntimeError('任务或文件夹选择正在进行，请稍候。')
             self.state['folder_busy'] = True
         try:
@@ -106,7 +113,7 @@ class Jobs:
 
     def start(self, kind, courses=None, scale=2):
         with self.lock:
-            if self.state['active'] or self.state['folder_busy']:
+            if self.closing or self.state['active'] or self.state['folder_busy']:
                 raise RuntimeError('已有任务或文件夹选择正在进行，请稍候。')
             self.job_browser = self.browsers.require()
             output = validate_directory(self.preferences.path,
@@ -131,6 +138,12 @@ class Jobs:
             if self.cancel_file:
                 self.cancel_file.touch()
             self.state.update(phase='cancelling', message='正在停止，当前网络操作结束后退出。已校验的 PDF 会保留。')
+
+    def prepare_shutdown(self):
+        with self.lock:
+            if self.state['active'] or self.state['folder_busy']:
+                raise RuntimeError('任务或文件夹选择仍在进行，请结束后再退出。')
+            self.closing = True
 
     def check_cancel(self):
         if self.cancel_requested.is_set():
@@ -285,8 +298,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Closing the browser during a status poll is a normal disconnect.
+            self.close_connection = True
 
     def allowed(self, api=False):
         host = f'127.0.0.1:{self.server.server_port}'
@@ -355,8 +372,7 @@ class Handler(BaseHTTPRequestHandler):
                 folder = validate_directory(folder, create=True)
                 os.startfile(str(folder))
             elif self.path == '/api/shutdown':
-                if any(self.server.jobs.snapshot()[k] for k in ('active', 'folder_busy')):
-                    raise RuntimeError('任务或文件夹选择仍在进行，请结束后再退出。')
+                self.server.jobs.prepare_shutdown()
                 self.send(200, {'ok': True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
@@ -374,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
 def existing_url(state_file):
     try:
         state = json.loads(state_file.read_text(encoding='utf-8'))
+        if not isinstance(state, dict):
+            return None
         if state.get('project_root') != str(PROJECT_ROOT):
             return None
         port = int(state['port'])
@@ -382,9 +400,9 @@ def existing_url(state_file):
         url = f'http://127.0.0.1:{port}'
         with urlopen(url + '/health', timeout=1) as response:
             health = json.load(response)
-        if health.get('app') == APP_NAME and health.get('instance') == state.get('instance'):
+        if isinstance(health, dict) and health.get('app') == APP_NAME and health.get('instance') == state.get('instance'):
             return url
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         pass
     return None
 
@@ -395,17 +413,32 @@ def main():
     args = parser.parse_args()
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     state_file = DATA_ROOT / 'ui.json'
-    if url := existing_url(state_file):
-        if args.open:
-            webbrowser.open(url)
-        print(url)
-        return
+    with workbench_lock(DATA_ROOT / 'ui.lock') as acquired:
+        if not acquired:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if url := existing_url(state_file):
+                    if args.open:
+                        webbrowser.open(url)
+                    print(url, flush=True)
+                    return
+                time.sleep(.1)
+            raise RuntimeError('工作台正在启动或退出，请稍后重试。')
+        if url := existing_url(state_file):
+            if args.open:
+                webbrowser.open(url)
+            print(url, flush=True)
+            return
+        serve_workbench(state_file, args.open)
+
+
+def serve_workbench(state_file, open_browser=False):
     server = Server()
     url = f'http://127.0.0.1:{server.server_port}'
     state_file.write_text(json.dumps({'port': server.server_port, 'instance': server.instance,
                                      'project_root': str(PROJECT_ROOT)}), encoding='utf-8')
     print(url, flush=True)
-    if args.open:
+    if open_browser:
         webbrowser.open(url)
     try:
         server.serve_forever(poll_interval=0.2)

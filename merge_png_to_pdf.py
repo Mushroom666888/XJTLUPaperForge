@@ -12,6 +12,7 @@ import img2pdf
 from PIL import Image
 
 from pdf_quality import FORMAT_TAG, page_fingerprint, verify_pdf
+from task_events import check_cancelled
 
 
 def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0):
@@ -38,6 +39,7 @@ def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0):
 
     records = []
     for path in files:
+        check_cancelled()
         with Image.open(path) as image:
             records.append(page_fingerprint(image))
     manifest = {"format": FORMAT_TAG, "dpi": dpi, "pages": records}

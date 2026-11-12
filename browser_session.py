@@ -24,6 +24,7 @@ from settings import BROWSER_KIND
 from browser_config import detect_browsers, NAMES
 
 SESSION_FILE = str(_SESSION_PATH)
+BROWSER_NAME = NAMES[BROWSER_KIND]
 
 
 def _find_chrome():
@@ -45,13 +46,13 @@ def _wait_for_debug_port(process, port, timeout=20):
     while time.monotonic() < deadline:
         # Edge's small launcher may exit 0 while its browser child is still starting.
         if process.poll() not in (None, 0):
-            raise RuntimeError("Chrome 在调试接口就绪前退出。")
+            raise RuntimeError(f"{BROWSER_NAME} 在调试接口就绪前退出。")
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.25):
                 return
         except OSError:
             time.sleep(0.2)
-    raise RuntimeError("等待 Chrome 调试接口超时。")
+    raise RuntimeError(f"等待 {BROWSER_NAME} 调试接口超时。")
 
 
 def _cdp_port_alive(port, timeout=0.5):
@@ -85,22 +86,61 @@ def write_session(port, pid, user_data_dir):
         "user_data_dir": user_data_dir,
         "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    tmp = SESSION_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, SESSION_FILE)
+    fd, tmp = tempfile.mkstemp(prefix='.browser-session-', suffix='.tmp', dir=os.path.dirname(SESSION_FILE))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, SESSION_FILE)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def browser_process_id(browser):
+    """Read the PID from the connected browser, never infer it from an open port."""
+    session = browser.new_browser_cdp_session()
+    try:
+        processes = session.send('SystemInfo.getProcessInfo')['processInfo']
+        return next(int(process['id']) for process in processes if process['type'] == 'browser')
+    finally:
+        session.detach()
 
 
 def record_browser_process(browser, port, user_data_dir):
     """Record the actual browser PID, including Edge's separate launcher child."""
-    session = browser.new_browser_cdp_session()
+    pid = browser_process_id(browser)
+    write_session(port, pid, user_data_dir)
+    return pid
+
+
+def connect_recorded_browser(playwright, info):
+    """Verify ownership before navigating or closing a recorded browser."""
+    browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{info["port"]}', timeout=5000)
     try:
-        processes = session.send('SystemInfo.getProcessInfo')['processInfo']
-        pid = next(int(process['id']) for process in processes if process['type'] == 'browser')
-        write_session(port, pid, user_data_dir)
-        return pid
+        if browser_process_id(browser) != info['pid']:
+            raise RuntimeError('浏览器会话记录已失效，未操作其他浏览器。')
+        return browser
+    except Exception:
+        browser.close()
+        raise
+
+
+def close_recorded_browser(playwright, info):
+    """A stale session must never terminate an unrelated process by stored PID."""
+    browser = connect_recorded_browser(playwright, info)
+    try:
+        try:
+            browser.new_browser_cdp_session().send('Browser.close')
+        except Exception:
+            if browser.is_connected():
+                raise
     finally:
-        session.detach()
+        try:
+            browser.close()  # Disconnect the client; do not kill a stored PID.
+        except Exception:
+            pass
 
 
 def read_session():
@@ -111,7 +151,13 @@ def read_session():
     try:
         with open(SESSION_FILE, "r", encoding="utf-8") as f:
             info = json.load(f)
-        port = int(info["port"])
+        port = info['port']
+        pid = info['pid']
+        profile = info['user_data_dir']
+        if type(port) is not int or not 1 <= port <= 65535 or type(pid) is not int or pid <= 0:
+            raise ValueError('Invalid session identifiers')
+        if not isinstance(profile, str) or not os.path.isabs(profile):
+            raise ValueError('Invalid session profile')
     except Exception:
         clear_session()
         return None
@@ -274,7 +320,7 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
             f"http://127.0.0.1:{port}"
         )
         if not browser.contexts:
-            raise RuntimeError("Chrome 未创建默认浏览器上下文。")
+            raise RuntimeError(f"{BROWSER_NAME} 未创建默认浏览器上下文。")
         yield browser.contexts[0]
     finally:
         if browser is not None:
@@ -314,12 +360,10 @@ def open_chrome(playwright, headless=False, user_data_dir=None):
     """
     info = read_session()
     if info:
-        browser = playwright.chromium.connect_over_cdp(
-            f"http://127.0.0.1:{info['port']}"
-        )
+        browser = connect_recorded_browser(playwright, info)
         try:
             if not browser.contexts:
-                raise RuntimeError("常驻 Chrome 无可用浏览器上下文。")
+                raise RuntimeError(f"常驻 {BROWSER_NAME} 无可用浏览器上下文。")
             print(f"已连接常驻浏览器 (CDP 端口 {info['port']})，复用登录态。")
             yield browser.contexts[0], True
         finally:

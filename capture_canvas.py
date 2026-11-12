@@ -35,33 +35,42 @@ FINAL_PATTERN = re.compile(r'\bFINAL\b', re.IGNORECASE)
 # 元数据解析
 # ═══════════════════════════════════════════════════════════════
 
-def parse_exam_metadata(page):
+def parse_exam_metadata(page, *, timeout_ms=10000):
     """从首页文字提取元数据；无可用文字时识别首页画布。"""
+    check_cancelled()
     layer_text = page.evaluate("""() => {
         const layer = document.querySelector('.textLayer');
         return layer ? (layer.textContent || '') : '';
     }""") or ""
-    pdf_text = page.evaluate("""async () => {
-        const deadline = Date.now() + 10000;
-        while (Date.now() < deadline) {
-            const pdf = window.PDFViewerApplication?.pdfDocument;
-            if (pdf) {
-                try {
+    pdf_text = page.evaluate("""async ({timeoutMs}) => {
+        let timer;
+        const read = async () => {
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+                const pdf = window.PDFViewerApplication?.pdfDocument;
+                if (pdf) {
                     const firstPage = await pdf.getPage(1);
                     const content = await firstPage.getTextContent();
                     return content.items.map(item => item.str || '').join(' ');
-                } catch (error) {
-                    return '';
                 }
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
-            await new Promise(resolve => setTimeout(resolve, 200));
+            return '';
+        };
+        try {
+            return await Promise.race([
+                read().catch(() => ''),
+                new Promise(resolve => { timer = setTimeout(() => resolve(''), timeoutMs); })
+            ]);
+        } finally {
+            clearTimeout(timer);
         }
-        return '';
-    }""") or ""
+    }""", {"timeoutMs": timeout_ms}) or ""
+    check_cancelled()
     text = f"{layer_text} {pdf_text}"
     metadata = parse_metadata_from_text(text)
     if metadata[0] != "UNKNOWN" and metadata[1] != "unknown" and (
-        RESIT_PATTERN.search(text) or FINAL_PATTERN.search(text)
+        bool(RESIT_PATTERN.search(text)) != bool(FINAL_PATTERN.search(text))
     ):
         return metadata
 
@@ -75,7 +84,7 @@ def parse_exam_metadata(page):
         raise RuntimeError(f"无法识别封面信息: {exc}") from exc
     combined = f"{text} {ocr_text}"
     code, year, exam_type = parse_metadata_from_text(combined)
-    if not (RESIT_PATTERN.search(combined) or FINAL_PATTERN.search(combined)):
+    if bool(RESIT_PATTERN.search(combined)) == bool(FINAL_PATTERN.search(combined)):
         exam_type = "unknown"
     return code, year, exam_type
 
@@ -132,7 +141,7 @@ def resolve_paper_metadata(link_text, row_text, detail_text, pdf_viewer, course_
             continue
         source = source.upper()
         source_code, source_year, source_type = parse_metadata_from_text(source)
-        if source_code != "UNKNOWN" and not source_code.startswith(course_code.upper()):
+        if source_code != "UNKNOWN" and source_code != course_code.upper():
             continue
         if code == "UNKNOWN" and source_code != "UNKNOWN":
             code = source_code
@@ -147,6 +156,8 @@ def resolve_paper_metadata(link_text, row_text, detail_text, pdf_viewer, course_
 
     if code == "UNKNOWN" or year == "unknown" or exam_type is None:
         pdf_code, pdf_year, pdf_type = parse_exam_metadata(pdf_viewer)
+        if pdf_code != "UNKNOWN" and pdf_code != course_code.upper():
+            raise ValueError("PDF 的课程编号与请求不一致，未借用其他课程的信息。")
         if code == "UNKNOWN":
             code = pdf_code
         if year == "unknown":
@@ -175,13 +186,16 @@ def _is_logged_in(page):
     """可靠的登录态检测。
 
     未登录首页本身就渲染 'Past Exam Papers'，因此不能单用它判断。
-    已登录标志：页面在 etd 域名、已渲染出 Past Exam Papers、
+    已登录标志：页面在 etd 域名、已渲染出 Past Exam Papers 和 Logout、
     且不存在未登录才有的 'User Login' / 'Login' 按钮。
+    SPA 初始化期间缺少 Login 并不等于已经认证。
     """
     try:
         if urlsplit(page.url).hostname != "etd.xjtlu.edu.cn":
             return False
         if not page.get_by_text("Past Exam Papers", exact=True).count():
+            return False
+        if not page.get_by_text("Logout", exact=True).first.is_visible():
             return False
         if page.get_by_text("User Login", exact=True).count():
             return False
@@ -202,12 +216,14 @@ def login(page, username=None, password=None, allow_manual=True):
     emit("phase", phase="login")
     print("打开首页...")
     page.goto(BASE_URL, wait_until="domcontentloaded")
+    check_cancelled()
     # 等 SPA 渲染完成
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
     except Exception:
         pass
     page.wait_for_timeout(1500)
+    check_cancelled()
 
     if _is_logged_in(page):
         print("已复用浏览器登录状态。")
@@ -218,6 +234,7 @@ def login(page, username=None, password=None, allow_manual=True):
     try:
         page.get_by_role("button", name="Login").click()
     except Exception:
+        check_cancelled()
         try:
             page.click("text=Login")
         except Exception as e:
@@ -225,12 +242,26 @@ def login(page, username=None, password=None, allow_manual=True):
 
     # 跳转链：etd → trust.xjtlu.edu.cn (深信服 SDP) → sso → uim 登录页
     print("等待 SSO 跳转到登录页...")
+    check_cancelled()
     try:
-        page.wait_for_selector("input[type='password']", timeout=20000)
-        print("已到达登录页，请在浏览器窗口中手动完成登录。")
+        # SSO can return directly to the homepage without displaying a form.
+        page.wait_for_function("""() => {
+            const visible = el => el && el.getClientRects().length > 0 &&
+                getComputedStyle(el).visibility !== 'hidden';
+            return Array.from(document.querySelectorAll('input[type="password"]')).some(visible) ||
+                (location.hostname === 'etd.xjtlu.edu.cn' &&
+                 Array.from(document.querySelectorAll('a,button,span,div')).some(
+                     el => el.textContent.trim() === 'Logout' && visible(el)));
+        }""", timeout=20000)
+        if not _is_logged_in(page):
+            print("已到达登录页，请在浏览器窗口中手动完成登录。")
     except Exception:
-        safe_url = urlsplit(page.url)._replace(query="").geturl()
+        safe_url = urlsplit(page.url)._replace(query="", fragment="").geturl()
         print(f"警告：20 秒内未出现登录表单，当前页面: {safe_url[:120]}")
+
+    if _is_logged_in(page):
+        print("学校单点登录已恢复会话。")
+        return
 
     if not allow_manual:
         raise RuntimeError(
@@ -275,19 +306,19 @@ def navigate_to_past_exam_papers(page):
     return exam_tab
 
 
-def agree_and_search(page, course_code):
+def agree_and_search(page, course_code, *, timeout_ms=30000):
     """等待搜索表单和服务器响应，避免慢加载被误判成零结果。"""
     if "/Policy/" in page.url:
         print("等待并点击 Agree 按钮...")
         agree = page.get_by_text("Agree", exact=True)
-        agree.wait_for(state="visible", timeout=30000)
+        agree.wait_for(state="visible", timeout=timeout_ms)
         agree.click()
 
     search_input = page.locator(
         'input[type="text"]:not([readonly]):not([disabled]):visible'
     ).first
-    search_input.wait_for(state="visible", timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=30000)
+    search_input.wait_for(state="visible", timeout=timeout_ms)
+    page.wait_for_load_state("networkidle", timeout=timeout_ms)
     search_input.fill(course_code)
     search_input.press("Tab")
     print(f"搜索 {course_code}，等待服务器完成查询...")
@@ -296,14 +327,14 @@ def agree_and_search(page, course_code):
             urlsplit(response.url).path == "/api/v1/Search/Search"
             and course_code.upper() in (response.request.post_data or "").upper()
         ),
-        timeout=30000,
+        timeout=timeout_ms,
     ) as pending:
         page.locator("button.search-btn:not(.ivu-btn-long)").click()
     response = pending.value
     if response.status != 200:
         raise RuntimeError(f"试卷检索请求失败（HTTP {response.status}），请重新登录或稍后重试。")
-    response.finished()
-    page.wait_for_load_state("networkidle", timeout=30000)
+    page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    check_cancelled()
     if search_input.input_value().strip().upper() != course_code.upper():
         raise RuntimeError("页面初始化重置了课程查询，请重试，未使用未筛选的结果。")
     if "/SearchDetail/" not in page.url:
@@ -458,6 +489,7 @@ def has_next_page(page):
         ".el-icon-arrow-right",
     ]
     for sel in selectors:
+        check_cancelled()
         try:
             el = page.query_selector(sel)
             if el and el.is_enabled():
@@ -478,6 +510,7 @@ def go_to_next_page(page):
         ".el-icon-arrow-right",
     ]
     for sel in selectors:
+        check_cancelled()
         try:
             el = page.query_selector(sel)
             if el and el.is_enabled():

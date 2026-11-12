@@ -2,12 +2,41 @@
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from PIL import Image, ImageStat
 from pypdf import PdfReader
+from task_events import check_cancelled
 
 FORMAT_TAG = "exam-drm-bypass-lossless-v1"
+
+
+def _verify_page_drawing(page, number):
+    """Check the full-page image placement produced by our lossless exporter.
+
+    Image hashes alone cannot detect an empty content stream or clipped image.
+    This validator intentionally accepts the product's generated format only.
+    """
+    box = [float(value) for value in page.mediabox]
+    width, height = float(page.mediabox.width), float(page.mediabox.height)
+    if (not all(math.isfinite(value) for value in box) or width <= 0 or height <= 0 or
+            box[:2] != [0, 0] or list(page.cropbox) != list(page.mediabox) or
+            page.rotation % 360 or float(page.get('/UserUnit', 1)) != 1 or page.get('/Annots')):
+        raise ValueError(f"PDF 第 {number} 页页面裁切、旋转或尺寸异常。")
+    content = page.get_contents()
+    operations = content.operations if content is not None else []
+    if [operator for _, operator in operations] != [b'q', b'cm', b'Do', b'Q']:
+        raise ValueError(f"PDF 第 {number} 页页面绘制指令不完整。")
+    matrix, image_name = operations[1][0], operations[2][0]
+    expected = [width, 0, 0, height, 0, 0]
+    resources = page.get('/Resources', {}).get('/XObject', {})
+    if (len(matrix) != 6 or any(not math.isclose(float(value), target, abs_tol=.001)
+                               for value, target in zip(matrix, expected)) or
+            len(image_name) != 1 or image_name[0] not in resources or
+            resources[image_name[0]].get('/Subtype') != '/Image' or
+            operations[0][0] or operations[3][0]):
+        raise ValueError(f"PDF 第 {number} 页页面绘制未完整覆盖纸张。")
 
 
 def page_fingerprint(image, reject_blank=False):
@@ -28,6 +57,7 @@ def inspect_png_pages(folder, expected_pages):
     records = []
     seen = set()
     for number, path in enumerate(files, 1):
+        check_cancelled()
         with Image.open(path) as image:
             try:
                 record = page_fingerprint(image, reject_blank=True)
@@ -54,6 +84,8 @@ def verify_pdf(path, expected_pages, min_dpi=0, source_records=None, reject_blan
             raise ValueError("PDF 校验记录与原始分页图片不一致。")
         seen = set()
         for number, (page, expected) in enumerate(zip(reader.pages, records), 1):
+            check_cancelled()
+            _verify_page_drawing(page, number)
             if len(page.images) != 1:
                 raise ValueError(f"PDF 第 {number} 页缺少完整页面图像。")
             image = page.images[0].image

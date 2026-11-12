@@ -11,7 +11,7 @@ from merge_png_to_pdf import merge_png_to_pdf
 from pdf_quality import inspect_png_pages, verify_pdf
 from settings import OUTPUT_ROOT, WORK_ROOT
 from output_preferences import course_directory
-from task_events import check_cancelled, emit
+from task_events import check_cancelled, emit, TaskCancelled
 
 
 def normalize_course_code(course_code):
@@ -40,6 +40,8 @@ def pdf_is_complete(path, expected_pages, min_dpi=0):
     try:
         verify_pdf(path, expected_pages, min_dpi=min_dpi)
         return True
+    except TaskCancelled:
+        raise
     except Exception:
         return False
 

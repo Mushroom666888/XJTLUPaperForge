@@ -29,6 +29,27 @@ PDF integration tests use a **synthetic PDF.js-style viewer** but perform real p
 - Used the installed skill launcher to restart the idle app and verified its actual local health endpoint. No active export was interrupted.
 - Impeccable detector ran once. Small functional text findings were fixed; cream was retained because it is explicitly requested. Independent rendered review was performed; the user subsequently excluded the two-hanging-leg expression, leaving seven source-derived stickers.
 
-## Live-school boundary
+## Live-school verification — 2026-11-12
 
-The school site is currently closed, as reported by the user, and no valid saved browser login session was available. A new real-school download was **not** claimed or performed in this verification. Authentication, website availability and a real course export must be checked again when the site reopens. The synthetic tests are evidence for the local application and PDF pipeline, not evidence that the school's current pages or access rules work.
+After the school site reopened, the user manually authenticated in separate Chrome and Edge profiles. Both runs used the actual workbench controls, local API, Python worker, school search and PDF viewer, with separate temporary output folders outside the source checkout.
+
+| Browser | Output quality | Result |
+| --- | --- | --- |
+| Chrome | 300 DPI | Six PDFs, 61 pages; complete |
+| Edge | 192 DPI | Six PDFs, 61 pages; complete |
+
+The real course search returned six papers. Every file was checked for the reader's expected page count, readable PDF structure, per-page pixel hashes, order, duplicate/blank pages and effective resolution. The final files were checked again independently of the task result. Poppler rendered the first and last page of every PDF for visual review, plus detailed cover/body samples; margins, page numbers, diagrams and source watermarks were preserved. Both workbenches displayed complete status without JavaScript errors, and no PNG or staging directories remained in the course folders.
+
+Chrome is installed on this machine, so only its absence from browser discovery was simulated in the isolated Edge workbench to exercise the fallback selection. Edge itself, the school login, all school responses and all resulting PDFs were real. No Chrome session was imported into Edge. This proves the tested Windows/browser flows; it does not establish macOS/Linux or uninstalled agent-client compatibility.
+
+Temporary real-paper downloads, renders and the one-off acceptance driver are removed after review. No real papers, personal file inventory, cookies or browser profiles are committed. The maintained automated tests continue to use synthetic documents.
+
+After audit fixes, both complete flows were repeated from empty temporary destinations: Chrome again produced six PDFs / 61 pages at a measured minimum 300 DPI, and Edge six / 61 at 192 DPI, with zero frontend JavaScript errors. Independent pixel/page/order/DPI checks passed; all 122 page drawing layouts and first/last-page renders were reviewed. A transient reader timeout in an intermediate diagnostic recovered on the subsequent full run; timeouts remain bounded failures. Closing the test browser during a status poll also exposed an expected connection-abort traceback; the HTTP response boundary now handles that disconnect without changing task state or hiding worker failures.
+
+The full local regression suite passed all **103 tests** after the audit fixes. After the final browser-disconnect handling change, all **16 application/API/frontend tests** were repeated and passed; the browser-ownership guard was also checked again against both real browser sessions. Installer execution, dependency consistency, Skill validation and workflow syntax checks passed. CI now runs the actual installer into an isolated Skill directory before testing with the project's `.venv`, matching the launcher and installation tests' real runtime requirements.
+
+## First-principles and adversarial review
+
+[AUDIT.md](AUDIT.md) records the project-wide invariants, reproduced failures and corrections. Added cases cover exact course suffixes, ambiguous exam types, archive-name collisions, concurrent startup and crash recovery, shutdown races, stale browser identity, bounded stalled requests, cancellation during validation and corrupted local records. Authentication tests distinguish a partly rendered or hidden-template homepage from a visible authenticated state, accept automatic SSO restoration, and ensure URL query/fragment secrets stay out of login diagnostics.
+
+PDF fault injection preserved every embedded image and its pixel manifest while independently removing page drawing commands, moving an image off the page, cropping the page and changing rotation. All four originally passed the pixel-only check; the strengthened validator rejects them and refuses to reuse the files. The generated format still passes the normal export tests without reducing its quality checks or adding dependencies.

@@ -28,15 +28,18 @@ from browser_session import (
     read_session,
     clear_session,
     launch_detached_chrome,
-    terminate_pid_tree,
+    close_recorded_browser,
+    connect_recorded_browser,
     record_browser_process,
+    BROWSER_NAME,
 )
 from capture_canvas import BASE_URL, SPECIAL_PROFILE, login, _is_logged_in
 from task_events import emit, check_cancelled
 
 
-def _connect(playwright, port):
-    browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+def _connect(playwright, port, info=None):
+    browser = connect_recorded_browser(playwright, info) if info else (
+        playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}"))
     record_browser_process(browser, port, SPECIAL_PROFILE)
     return browser
 
@@ -61,7 +64,7 @@ def do_login():
         # 已有常驻实例：校验登录态，避免重复启动
         print("检测到常驻浏览器已在运行，校验登录态...")
         with sync_playwright() as p:
-            browser = _connect(p, info["port"])
+            browser = _connect(p, info["port"], info)
             try:
                 page = _first_page(browser.contexts[0])
                 if _check_logged_in(page):
@@ -76,7 +79,7 @@ def do_login():
 
     # 启动新的常驻 Chrome，启动标签直接打开系统首页（不先显示空白页）
     process, port = launch_detached_chrome(SPECIAL_PROFILE, start_url=BASE_URL)
-    print(f"已启动常驻 Chrome (CDP 端口 {port}, PID {process.pid})")
+    print(f"已启动常驻 {BROWSER_NAME} (CDP 端口 {port}, PID {process.pid})")
     try:
         with sync_playwright() as p:
             browser = _connect(p, port)
@@ -114,15 +117,16 @@ def do_close():
         print("没有运行中的常驻浏览器。")
         return
     pid = int(info["pid"])
-    print(f"正在关闭常驻 Chrome (PID {pid})...")
-    terminate_pid_tree(pid)
+    print(f"正在关闭常驻 {BROWSER_NAME} (PID {pid})...")
+    with sync_playwright() as p:
+        close_recorded_browser(p, info)
     clear_session()
     print("已关闭。")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="手动登录并保持 Chrome 常驻，供抓取脚本复用"
+        description=f"手动登录并保持 {BROWSER_NAME} 常驻，供抓取脚本复用"
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--status", action="store_true", help="查看常驻浏览器状态")

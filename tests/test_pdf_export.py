@@ -56,6 +56,27 @@ class PdfQualityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '像素不一致'):
             verify_pdf(reordered, 2)
 
+    def test_intact_image_cannot_hide_missing_shifted_or_cropped_page_content(self):
+        from pypdf.generic import DecodedStreamObject, NameObject, RectangleObject, NumberObject
+        merge_png_to_pdf(self.root, self.pdf)
+        for damage in ('empty', 'shifted', 'cropped', 'rotated'):
+            with self.subTest(damage=damage):
+                writer = PdfWriter(clone_from=self.pdf)
+                page = writer.pages[0]
+                if damage in ('empty', 'shifted'):
+                    content = DecodedStreamObject()
+                    content.set_data(b'' if damage == 'empty' else b'q 60 0 0 90 600 0 cm /Im0 Do Q')
+                    page[NameObject('/Contents')] = writer._add_object(content)
+                elif damage == 'cropped':
+                    page.cropbox = RectangleObject([0, 0, 30, 45])
+                else:
+                    page[NameObject('/Rotate')] = NumberObject(90)
+                damaged = self.root / f'{damage}.pdf'
+                writer.write(damaged)
+                with self.assertRaisesRegex(ValueError, '页面绘制|页面裁切'):
+                    verify_pdf(damaged, 2, 192)
+                self.assertFalse(pdf_output.pdf_is_complete(damaged, 2, 192))
+
     def test_missing_and_blank_pages_are_rejected(self):
         (self.root / 'pdf_page_002.png').unlink()
         with self.assertRaisesRegex(ValueError, '页码不完整'):
@@ -217,6 +238,18 @@ class BrowserExportTests(unittest.TestCase):
         self.assertEqual(list(self.root.rglob('*.png')), [])
         self.assertEqual(list(self.root.rglob('*.pdf')), [])
         self.assertEqual(set(self.context.pages), before)
+
+    def test_two_distinct_catalog_entries_cannot_reuse_one_archive_name(self):
+        paper_names = {}
+        first = extract_one_paper(self.context, self.user_tab, self.paper, 2, 'CAN209', paper_names)
+        self.assertTrue(first.success, first.error)
+        original = Path(first.output_file).read_bytes()
+        other = PaperLink('https://export.test/another-detail', 'CAN209', 1, 1, 'CAN209 2023/24 Final')
+        second = extract_one_paper(self.context, self.user_tab, other, 2, 'CAN209', paper_names)
+        self.assertFalse(second.success)
+        self.assertIn('名称冲突', second.error)
+        self.assertEqual(Path(first.output_file).read_bytes(), original)
+        self.assertEqual(list((self.root/'output').rglob('*.pdf')), [Path(first.output_file)])
 
     def test_custom_destination_on_project_volume_has_verified_300_dpi_pdf(self):
         # The current Windows checkout is on D:, while capture scratch uses C:.
