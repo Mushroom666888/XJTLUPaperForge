@@ -246,6 +246,8 @@ The header pairs the leaf mark and wordmark with a local-workbench indicator and
 
 Use exactly seven local supplied-reference expressions: idle, starting, searching, downloading, validating, success and issue. Waiting reuses idle; cancelling and cancelled reuse validating. The scene contains three authorized small SVG mushrooms and two paper props. Keep the scene decorative and the adjacent status text authoritative.
 
+Manual school authentication displays “请去登录哦” with a readable 14px forest-colored instruction naming the task's actual browser. This is driven by the worker's waiting event, not by every connection attempt. The start button and account label also say that login is awaited; the prompt clears when processing resumes or is cancelled.
+
 Only searching, downloading and validating loop the gentle thoughtful motion (2.4s). Starting has a single departure motion (650ms); complete has a single celebration (850ms) and mushroom sway (900ms). Waiting and error states do not loop. Hidden-page and offscreen activity animation is paused. Under reduced motion, animations and transitions are disabled, hover translation is removed, and scrolling is immediate.
 
 The progress track is compact (7px). Its numerator counts fully archived courses; verified PDF counts remain separate, and unknown totals stay unknown. A success expression belongs only to a fully complete run. Partial results use the issue expression and explicit review status.

@@ -18,7 +18,7 @@ import webbrowser
 from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
 from output_preferences import OutputPreferences, choose_directory, validate_directory, course_directory
 from task_events import PREFIX, TaskCancelled
-from browser_config import BrowserPreferences
+from browser_config import BrowserPreferences, NAMES
 from instance_lock import workbench_lock
 
 APP_NAME = 'XJTLUPaperForge'
@@ -184,6 +184,15 @@ class Jobs:
                     phase = event.get('phase')
                     if phase in ('login', 'waiting', 'searching', 'downloading', 'validating'):
                         self.state.update(phase=phase)
+                        if phase == 'waiting':
+                            browser = NAMES.get(self.job_browser, '浏览器')
+                            self.state.update(login_ready=False,
+                                message=f'请在弹出的 {browser} 学校页面完成登录，登录后会自动继续。')
+                        elif phase == 'login':
+                            self.state['message'] = '正在检查学校连接，请稍候。'
+                        else:
+                            self.state.update(login_ready=True,
+                                message=f'正在整理 {self.state["current_course"]}。')
                 if row is None:
                     return
                 if kind == 'catalog':

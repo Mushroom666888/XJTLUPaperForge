@@ -53,3 +53,11 @@ The full local regression suite passed all **103 tests** after the audit fixes. 
 [AUDIT.md](AUDIT.md) records the project-wide invariants, reproduced failures and corrections. Added cases cover exact course suffixes, ambiguous exam types, archive-name collisions, concurrent startup and crash recovery, shutdown races, stale browser identity, bounded stalled requests, cancellation during validation and corrupted local records. Authentication tests distinguish a partly rendered or hidden-template homepage from a visible authenticated state, accept automatic SSO restoration, and ensure URL query/fragment secrets stay out of login diagnostics.
 
 PDF fault injection preserved every embedded image and its pixel manifest while independently removing page drawing commands, moving an image off the page, cropping the page and changing rotation. All four originally passed the pixel-only check; the strengthened validator rejects them and refuses to reuse the files. The generated format still passes the normal export tests without reducing its quality checks or adding dependencies.
+
+## Explicit school-login reminder
+
+The workbench now displays “请去登录哦” only when a worker requests manual authentication, names that task's actual browser, and says that work resumes automatically after login. The account label and disabled start button show the waiting state as well. A browser regression verifies the real event-to-API-to-DOM transition, removal after authentication completes, and a 320px layout.
+
+An additional live check launched a fresh, isolated Chrome profile, opened the real school's password form through the normal login worker, and verified the reminder in the actual workbench at desktop and narrow widths. Cancellation cleared the reminder. No credentials were entered, no papers were downloaded, and the existing authenticated browser sessions were preserved. The temporary browser, runtime and profile were cleaned up after the check.
+
+After the login-reminder addition, the complete local suite passed **104 tests** in 120.308 seconds; dependency and Git whitespace checks passed again.

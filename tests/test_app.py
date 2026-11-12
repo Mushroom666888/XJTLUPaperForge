@@ -206,6 +206,34 @@ class FrontendTests(unittest.TestCase):
         expect(self.page.locator('.result.complete')).to_have_count(1)
         self.assertEqual(self.calls[-1][1], ['CAN209','--scale','2.0'])
 
+    def test_manual_login_event_prompts_user_then_clears_after_connection(self):
+        from playwright.sync_api import expect
+        from task_events import PREFIX
+        release = threading.Event()
+        def runner(script, args, consume):
+            consume(PREFIX + json.dumps({'event': 'phase', 'phase': 'waiting'}))
+            if not release.wait(15): raise RuntimeError('Login test did not release worker.')
+            return 0
+        self.server.jobs.runner = runner
+        try:
+            self.page.locator('#login').click()
+            expect(self.page.locator('#mood-title')).to_have_text('请去登录哦')
+            expect(self.page.locator('#message')).to_contain_text('Google Chrome 学校页面完成登录')
+            expect(self.page.locator('#message')).to_contain_text('登录后会自动继续')
+            expect(self.page.locator('#account-label')).to_have_text('学校账号 · 等待登录')
+            expect(self.page.locator('#submit')).to_have_text('正在等待登录…')
+            self.assertFalse(self.server.jobs.snapshot()['login_ready'])
+            self.assertEqual(self.page.locator('#progress').evaluate('node => node.value'), 0)
+            self.page.set_viewport_size({'width': 320, 'height': 800})
+            self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+            release.set()
+            expect(self.page.locator('#phase')).to_have_text('账号已连接')
+            expect(self.page.locator('#mood-title')).not_to_have_text('请去登录哦')
+            expect(self.page.locator('#message')).to_have_text('学校账号已连接，可以开始导出。')
+            self.assertEqual(self.errors, [])
+        finally:
+            release.set()
+
     def test_native_folder_buttons_persist_cancel_reset_and_open(self):
         from playwright.sync_api import expect
         custom = self.root / '试卷 folder'; custom.mkdir()

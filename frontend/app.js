@@ -7,7 +7,7 @@ const moods = {
   idle: ['idle', '哪门课？让我想想。', '准备就绪'],
   starting: ['starting', '好，准备出发。', '正在连接'],
   login: ['starting', '先和学校打个招呼。', '正在连接'],
-  waiting: ['idle', '等你登录，我就在这里。', '等待登录'],
+  waiting: ['idle', '请去登录哦', '等待登录'],
   searching: ['searching', '让我仔细找一找。', '搜索试卷'],
   downloading: ['downloading', '正在把试卷带回来。', '下载页面'],
   validating: ['validating', '每一页，都要检查好。', '校验 PDF'],
@@ -158,10 +158,10 @@ function render(state) {
   $('phase').textContent = label;
   $('phase').className = 'phase' + (['error','review'].includes(phase) ? ' review' : '');
   if ($('message').textContent !== state.message) $('message').textContent = state.message;
-  $('submit').firstElementChild.textContent = state.active ? '正在整理中…' : ['error','review','cancelled'].includes(phase) ? '重新整理试卷' : '开始整理试卷';
+  $('submit').firstElementChild.textContent = state.active ? (phase === 'waiting' ? '正在等待登录…' : '正在整理中…') : ['error','review','cancelled'].includes(phase) ? '重新整理试卷' : '开始整理试卷';
   $('change-output').textContent = state.folder_busy ? '请在系统窗口选择…' : '更改位置';
   $('account-dot').classList.toggle('connected', state.login_ready);
-  $('account-label').textContent = state.login_ready ? '学校账号 · 已连接' : '学校账号 · 按需连接';
+  $('account-label').textContent = phase === 'waiting' ? '学校账号 · 等待登录' : state.login_ready ? '学校账号 · 已连接' : '学校账号 · 按需连接';
   $('login').textContent = state.login_ready ? '检查连接' : '连接账号';
   $('output-path').textContent = state.output_dir;
   $('output-path').title = state.output_dir;
