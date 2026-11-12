@@ -40,3 +40,10 @@ jobs:
           from pathlib import Path
           python = str(Path('.venv')/('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
           subprocess.run([python, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
+      - name: Diagnose native startup failures
+        if: failure()
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          python = str(Path('.venv')/('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
+          subprocess.run([python, 'tools/diagnose_startup.py'], check=True, timeout=60)
