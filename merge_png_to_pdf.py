@@ -15,7 +15,7 @@ from pdf_quality import FORMAT_TAG, page_fingerprint, verify_pdf
 from task_events import check_cancelled
 
 
-def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0):
+def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0, *, page_sizes=None, source_identity=None):
     if not math.isfinite(dpi) or dpi <= 0:
         raise ValueError("DPI 必须是正数。")
     if input_dir is None:
@@ -43,6 +43,18 @@ def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0):
         with Image.open(path) as image:
             records.append(page_fingerprint(image))
     manifest = {"format": FORMAT_TAG, "dpi": dpi, "pages": records}
+    layout = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
+    if page_sizes is not None:
+        if len(page_sizes) != len(files) or any(len(size) != 2 or
+                any(not math.isfinite(v) or v <= 0 for v in size) for size in page_sizes):
+            raise ValueError('源页面纸张尺寸缺失或无效。')
+        manifest['page_sizes'] = page_sizes
+        sizes = iter(page_sizes)
+        def layout(_width, _height, _dpi):
+            width, height = next(sizes)
+            return width, height, width, height
+    if source_identity is not None:
+        manifest['source'] = source_identity
     descriptor, pending = tempfile.mkstemp(suffix=".pdf", dir=output_file.parent)
     os.close(descriptor)
     try:
@@ -50,12 +62,13 @@ def merge_png_to_pdf(input_dir=None, output_file=None, dpi=192.0):
             img2pdf.convert(
                 *[str(path) for path in files], outputstream=stream,
                 engine=img2pdf.Engine.pikepdf,
-                layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi)),
+                layout_fun=layout,
                 producer=FORMAT_TAG,
                 subject=json.dumps(manifest, separators=(",", ":")),
             )
         verify_pdf(pending, len(files), min_dpi=dpi,
-                   source_records=records, reject_blank=False)
+                   source_records=records, reject_blank=False,
+                   source_identity=source_identity, page_sizes=page_sizes)
         os.replace(pending, output_file)
     finally:
         if os.path.exists(pending):

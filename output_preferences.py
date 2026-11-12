@@ -7,6 +7,7 @@ import sys
 import tempfile
 
 from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
+from runtime_paths import external_directory, script_command
 
 
 def validate_directory(value, *, create=False):
@@ -25,6 +26,7 @@ def validate_directory(value, *, create=False):
     path = Path(raw).expanduser()
     if not path.is_absolute():
         raise ValueError('请选择完整的文件夹路径。')
+    path = external_directory(path)
     if create:
         path.mkdir(parents=True, exist_ok=True)
     if not path.is_dir():
@@ -39,7 +41,7 @@ def validate_directory(value, *, create=False):
 
 def course_directory(root, code):
     """Reject an existing junction/symlink that would redirect course output."""
-    root = Path(root).resolve()
+    root = external_directory(root)
     target = root / code
     if target.resolve().parent != root:
         raise ValueError('课程文件夹指向了保存位置之外，请更换保存位置。')
@@ -49,7 +51,7 @@ def course_directory(root, code):
 def choose_directory(initial):
     flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
     result = subprocess.run(
-        [sys.executable, str(PROJECT_ROOT / 'folder_picker.py'), str(initial)],
+        script_command('folder_picker.py', initial),
         capture_output=True, encoding='utf-8', errors='replace',
         env=dict(os.environ, PYTHONUTF8='1'), creationflags=flags,
     )
@@ -74,7 +76,7 @@ class OutputPreferences:
             value = saved['output_dir']
             if not isinstance(value, str) or not Path(value).is_absolute() or '\x00' in value:
                 raise ValueError('Invalid saved path')
-            self.path = Path(value)
+            self.path = external_directory(value)
         except FileNotFoundError:
             pass
         except (OSError, ValueError, KeyError, TypeError):

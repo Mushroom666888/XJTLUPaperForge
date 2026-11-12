@@ -6,9 +6,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from browser_config import preferred_browser, NAMES
 from platform_support import default_data_root
+from runtime_paths import RESOURCE_ROOT, FROZEN, external_directory
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-load_dotenv(PROJECT_ROOT / '.env')
+PROJECT_ROOT = RESOURCE_ROOT
+if not FROZEN:
+    load_dotenv(PROJECT_ROOT / '.env')
 
 
 def _path_setting(name, default):
@@ -16,10 +18,11 @@ def _path_setting(name, default):
     path = Path(value).expanduser() if value else default
     if not path.is_absolute():
         path = PROJECT_ROOT / path
-    return path.resolve()
+    return external_directory(path)
 
 
-OUTPUT_ROOT = _path_setting('XJTLUPAPERFORGE_OUTPUT', PROJECT_ROOT.parent / 'XJTLUPaperForge-Output')
+OUTPUT_ROOT = _path_setting('XJTLUPAPERFORGE_OUTPUT',
+    (Path.home() if FROZEN else PROJECT_ROOT.parent) / 'XJTLUPaperForge-Output')
 DATA_ROOT = _path_setting(
     'XJTLUPAPERFORGE_DATA',
     default_data_root(),

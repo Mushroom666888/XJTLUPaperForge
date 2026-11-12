@@ -31,6 +31,8 @@ def _verify_page_drawing(page, number):
     matrix, image_name = operations[1][0], operations[2][0]
     expected = [width, 0, 0, height, 0, 0]
     resources = page.get('/Resources', {}).get('/XObject', {})
+    if page.get('/OC') or any('/OC' in value.get_object() for value in resources.values()):
+        raise ValueError(f"PDF 第 {number} 页包含会隐藏内容的可选图层。")
     if (len(matrix) != 6 or any(not math.isclose(float(value), target, abs_tol=.001)
                                for value, target in zip(matrix, expected)) or
             len(image_name) != 1 or image_name[0] not in resources or
@@ -70,15 +72,25 @@ def inspect_png_pages(folder, expected_pages):
     return records
 
 
-def verify_pdf(path, expected_pages, min_dpi=0, source_records=None, reject_blank=True):
+def verify_pdf(path, expected_pages, min_dpi=0, source_records=None, reject_blank=True,
+               source_identity=None, page_sizes=None):
     """Raise on corruption, missing pages, low resolution or changed image pixels."""
     with open(path, "rb") as stream:
         reader = PdfReader(stream, strict=True)
+        if '/OCProperties' in reader.trailer['/Root']:
+            raise ValueError('PDF 包含不支持的可选图层，可能隐藏页面内容。')
         if reader.is_encrypted or len(reader.pages) != expected_pages or expected_pages < 1:
             raise ValueError("PDF 页数不符或文件无法读取。")
         manifest = json.loads((reader.metadata or {}).get("/Subject", "{}"))
         if manifest.get("format") != FORMAT_TAG:
             raise ValueError("PDF 缺少无损导出校验记录，需要重新生成。")
+        if source_identity is not None and manifest.get('source') != source_identity:
+            raise ValueError('已有文件的试卷来源身份或版本与当前请求不一致。')
+        sizes = manifest.get('page_sizes')
+        if page_sizes is not None and sizes != page_sizes:
+            raise ValueError('PDF 纸张尺寸记录与源页面不一致。')
+        if sizes is not None and len(sizes) != expected_pages:
+            raise ValueError('PDF 纸张尺寸记录不完整。')
         records = manifest.get("pages", [])
         if len(records) != expected_pages or (source_records is not None and records != source_records):
             raise ValueError("PDF 校验记录与原始分页图片不一致。")
@@ -96,6 +108,10 @@ def verify_pdf(path, expected_pages, min_dpi=0, source_records=None, reject_blan
                 raise ValueError(f"PDF 第 {number} 页出现完全重复的页面。")
             seen.add(actual["sha256"])
             width, height = float(page.mediabox.width), float(page.mediabox.height)
+            if sizes is not None and (len(sizes[number-1]) != 2 or
+                    any(not math.isfinite(float(v)) or not math.isclose(actual, float(v), abs_tol=.01)
+                        for actual, v in zip((width, height), sizes[number-1]))):
+                raise ValueError(f'PDF 第 {number} 页纸张尺寸与源页面不一致。')
             if width <= 0 or height <= 0:
                 raise ValueError(f"PDF 第 {number} 页尺寸无效。")
             dpi = min(actual["width"] * 72 / width, actual["height"] * 72 / height)

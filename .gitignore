@@ -49,3 +49,9 @@ browser_profile_from_chrome/
 
 # 专用浏览器 profile（含指纹与登录态）
 chrome_profile*/
+edge_profile*/
+brave_profile*/
+chromium_profile*/
+.browser_session-*.json
+.browser-session-*.tmp
+.build-venv/

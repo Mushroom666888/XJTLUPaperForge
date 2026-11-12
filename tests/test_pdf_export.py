@@ -101,14 +101,14 @@ class PdfQualityTests(unittest.TestCase):
     def test_failed_capture_is_not_published_and_temporary_pngs_are_removed(self):
         output = self.root / 'output'
         scratch = self.root / 'scratch'
-        def partial_capture(viewer, folder, scale):
+        def partial_capture(viewer, folder, scale, **kwargs):
             make_pages(folder)
             return 1
         with patch.object(pdf_output, 'OUTPUT_ROOT', output), patch.object(pdf_output, 'WORK_ROOT', scratch), \
              patch.object(pdf_output, 'extract_canvas_pages', side_effect=partial_capture):
             with self.assertRaisesRegex(RuntimeError, '页数不完整'):
                 pdf_output.save_paper_pdf(object(), 'CAN209', 'CAN209_2023-24_F', 2, 2)
-        self.assertFalse(output.exists())
+        self.assertEqual(list(output.rglob('*.pdf')), [])
         self.assertEqual(list(scratch.iterdir()), [])
 
     def test_existing_invalid_file_is_never_overwritten(self):
@@ -124,8 +124,8 @@ class PdfQualityTests(unittest.TestCase):
     def test_cancelled_validation_never_publishes_and_cleans_staging(self):
         from task_events import TaskCancelled
         output = self.root / 'output'
-        def capture(viewer, folder, scale):
-            make_pages(folder); return 2
+        def capture(viewer, folder, scale, *, page_sizes):
+            make_pages(folder); page_sizes.extend([[60,90],[60,90]]); return 2
         with patch.object(pdf_output, 'OUTPUT_ROOT', output), patch.object(pdf_output, 'WORK_ROOT', self.root/'scratch'), \
              patch.object(pdf_output, 'extract_canvas_pages', side_effect=capture), \
              patch.object(pdf_output, 'check_cancelled', side_effect=[None, None, TaskCancelled()]):
@@ -136,40 +136,7 @@ class PdfQualityTests(unittest.TestCase):
         self.assertEqual(list((self.root/'scratch').iterdir()), [])
 
 
-VIEWER_HTML = '''<div class="page" data-page-number="1"><canvas></canvas></div>
-<div class="page" data-page-number="2"><canvas></canvas></div><script>
-let current = 1, scale = 1.25;
-const views = [...document.querySelectorAll('canvas')].map(canvas =>
-    ({canvas, scale: 0, renderingState: 0, viewport: {width: 0, height: 0}, generation: 0}));
-function render(number) {
-    const view = views[number - 1];
-    if (view.scale === scale && view.renderingState === 3) return;
-    const token = ++view.generation;
-    view.scale = scale; view.renderingState = 1;
-    view.canvas.width = Math.round(160 * scale);
-    view.canvas.height = Math.round(230 * scale);
-    view.viewport = {width: view.canvas.width, height: view.canvas.height};
-    setTimeout(() => {
-        if (token !== view.generation) return;
-        const ctx = view.canvas.getContext('2d');
-        ctx.fillStyle = 'white'; ctx.fillRect(0, 0, view.canvas.width, view.canvas.height);
-        ctx.fillStyle = 'black'; ctx.font = '24px Arial';
-        ctx.fillText('CAN209 page ' + number, 20, 50);
-        ctx.strokeStyle = number === 1 ? 'blue' : 'red';
-        ctx.beginPath(); ctx.moveTo(20, 100); ctx.lineTo(200, 110 * number); ctx.stroke();
-        view.renderingState = 3;
-    }, 800);
-}
-window.PDFViewerApplication = {
-    pdfDocument: {numPages: 2}, pagesCount: 2,
-    get page() {return current;}, set page(n) {current = n; render(n);},
-    pdfViewer: {
-        get currentScale() {return scale;},
-        set currentScale(n) {if (n !== scale) {scale = n; render(current);}},
-        getPageView: index => views[index]
-    }
-}; render(1);
-</script>'''
+from synthetic_pages import VIEWER_HTML
 
 
 class BrowserExportTests(unittest.TestCase):
@@ -256,7 +223,7 @@ class BrowserExportTests(unittest.TestCase):
         # CI uses its own available volume; neither case touches actual school papers.
         from settings import PROJECT_ROOT
         from output_preferences import OutputPreferences
-        work = PROJECT_ROOT / 'work'; work.mkdir(exist_ok=True)
+        work = PROJECT_ROOT.parent
         with tempfile.TemporaryDirectory(prefix='export-integration-', dir=work) as destination:
             preferences = OutputPreferences(self.root/'settings.json', self.root/'default')
             selected = preferences.save(destination)
@@ -328,19 +295,23 @@ class BrowserExportTests(unittest.TestCase):
 
 
 class PaginationTests(unittest.TestCase):
-    def test_only_exact_course_results_are_returned(self):
+    def test_mismatched_courses_remain_in_inventory_with_explicit_rejection(self):
         items = [
             {'href': f'https://example.test/{i}', 'text': 'Course title', 'site_text': code, 'index': i}
             for i, code in enumerate(('EEE201', 'CAN209TC', 'CAN209'))
         ]
-        with patch('batch_capture.collect_search_results', return_value=items), \
+        with patch('batch_capture.read_search_total', return_value=3), \
+             patch('batch_capture.collect_search_results', return_value=items), \
              patch('batch_capture.has_next_page', return_value=False):
             papers = collect_all_papers(object(), 'CAN209')
-        self.assertEqual([paper.site_text for paper in papers], ['CAN209'])
+        self.assertEqual([paper.site_text for paper in papers], ['EEE201', 'CAN209TC', 'CAN209'])
+        self.assertTrue(all(p.rejection for p in papers[:2]))
+        self.assertIsNone(papers[2].rejection)
 
     def test_repeated_search_page_stops_instead_of_looping_forever(self):
         item = {'href': 'https://example.test/1', 'text': 'CAN209', 'index': 0}
-        with patch('batch_capture.collect_search_results', return_value=[item]), \
+        with patch('batch_capture.read_search_total', return_value=2), \
+             patch('batch_capture.collect_search_results', return_value=[item]), \
              patch('batch_capture.has_next_page', return_value=True), \
              patch('batch_capture.go_to_next_page', return_value=True):
             with self.assertRaisesRegex(RuntimeError, '没有新的搜索结果'):
@@ -348,7 +319,8 @@ class PaginationTests(unittest.TestCase):
 
     def test_failed_next_page_click_stops_with_error(self):
         item = {'href': 'https://example.test/1', 'text': 'CAN209', 'index': 0}
-        with patch('batch_capture.collect_search_results', return_value=[item]), \
+        with patch('batch_capture.read_search_total', return_value=2), \
+             patch('batch_capture.collect_search_results', return_value=[item]), \
              patch('batch_capture.has_next_page', return_value=True), \
              patch('batch_capture.go_to_next_page', return_value=False):
             with self.assertRaisesRegex(RuntimeError, '无法进入下一页'):

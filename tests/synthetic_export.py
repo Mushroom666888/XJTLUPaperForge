@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 from browser_session import fresh_chrome_context
 from batch_capture import extract_one_paper, PaperLink
 from task_events import emit
+from result_audit import catalog_items, verified_fields, record_id
 from test_pdf_export import VIEWER_HTML
 
 
@@ -27,11 +28,13 @@ def main():
             route.fulfill(content_type='text/html',body=html)
         context.route('https://export.test/**',respond)
         page = context.new_page()
-        emit('phase',phase='searching');emit('catalog',total=1)
+        emit('phase',phase='searching');emit('inventory',total=1)
         paper = PaperLink('https://export.test/detail','CAN209',0,1,'CAN209 2023/24 Final')
+        emit('catalog',total=1,items=catalog_items([paper]))
         result = extract_one_paper(context,page,paper,args.scale,args.course)
         if result.success:
-            emit('verified',name=result.paper_name+'.pdf',pages=result.page_count)
+            emit('verified',**verified_fields(result))
+            emit('summary',total=1,succeeded=[record_id(paper.href)],failed=[])
             return 0
         print('✗ '+str(result.error))
         return 1

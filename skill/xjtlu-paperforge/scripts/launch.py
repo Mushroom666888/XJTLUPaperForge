@@ -32,6 +32,19 @@ def main():
     parser.add_argument('--print-root', action='store_true', help='Print the resolved installation directory')
     args = parser.parse_args()
     skill_root = Path(__file__).resolve().parent.parent
+    launcher = None
+    try:
+        record = json.loads((skill_root/'installation.json').read_text(encoding='utf-8'))
+        launcher = Path(record['launcher'])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # Source installations and relocated bundles can be registered again.
+    if launcher is not None and launcher.is_file() and not os.environ.get('XJTLUPAPERFORGE_HOME'):
+        if args.print_root:
+            print(launcher.parent)
+            return
+        subprocess.run([str(launcher), *(['--no-browser'] if args.no_browser else [])],
+            check=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        return
     root = find_project(skill_root)
     if args.print_root:
         print(root)
@@ -41,11 +54,12 @@ def main():
         raise RuntimeError('Python environment missing. Run install.py in the program folder.')
     console_python = root / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     configured_data = subprocess.check_output(
-        [str(console_python), '-c', 'import settings; print(settings.DATA_ROOT)'],
+        [str(console_python), '-c', 'import json,settings; from runtime_paths import public_build_info; print(json.dumps(dict(data=str(settings.DATA_ROOT),build=public_build_info())))'],
         cwd=root, encoding='utf-8', env=dict(os.environ, PYTHONUTF8='1'),
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
     ).strip()
-    runtime = Path(configured_data)
+    configuration = json.loads(configured_data)
+    runtime = Path(configuration['data'])
     (runtime / 'logs').mkdir(parents=True, exist_ok=True)
     command = [str(python), str(root / 'app.py')]
     if not args.no_browser:
@@ -66,6 +80,8 @@ def main():
                 with urlopen(url + '/health', timeout=1) as response:
                     health = json.load(response)
                 if isinstance(health, dict) and health.get('app') == 'XJTLUPaperForge' and health.get('instance') == state.get('instance'):
+                    if any(health.get(key) != value for key, value in configuration['build'].items()):
+                        raise RuntimeError('该位置仍运行着其他版本的工作台，请先在旧工作台点击“退出应用”，再启动当前版本。')
                     print(f'XJTLUPaperForge is ready: {url}')
                     return
         except (OSError, ValueError, KeyError, TypeError):

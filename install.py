@@ -19,7 +19,7 @@ def python_path(root):
     return root / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 
 
-def install_skill(project, skills_dir):
+def install_skill(project, skills_dir, *, launcher=None):
     source = project / 'skill' / SKILL_NAME
     destination = skills_dir / SKILL_NAME
     files = [p for p in source.rglob('*') if p.is_file() and '__pycache__' not in p.parts
@@ -35,7 +35,10 @@ def install_skill(project, skills_dir):
     configuration = destination / 'installation.json'
     if configuration.is_symlink():
         raise ValueError('Installation configuration must be a regular file.')
-    configuration.write_text(json.dumps({'project_root': str(project.resolve())}, indent=2), encoding='utf-8')
+    record = {'project_root': str(project.resolve())}
+    if launcher:
+        record['launcher'] = str(Path(launcher).resolve())
+    configuration.write_text(json.dumps(record, indent=2), encoding='utf-8')
     return destination
 
 

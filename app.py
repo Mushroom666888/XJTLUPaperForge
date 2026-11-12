@@ -14,16 +14,18 @@ import sys
 import threading
 import time
 from urllib.request import urlopen
-import webbrowser
 
 from settings import DATA_ROOT, OUTPUT_ROOT, PROJECT_ROOT
 from output_preferences import OutputPreferences, choose_directory, validate_directory, course_directory
 from task_events import PREFIX, TaskCancelled
-from browser_config import BrowserPreferences, NAMES
+from browser_config import BrowserPreferences, NAMES, open_workbench
 from instance_lock import workbench_lock
 from platform_support import open_directory
+from runtime_paths import script_command, public_build_info
+from result_audit import consume_result, set_expected, add_error, audit_files, finalize_result
 
 APP_NAME = 'XJTLUPaperForge'
+BUILD_INFO = public_build_info()
 COURSE_RE = re.compile(r'[A-Z]{3}\d{3}[A-Z]{0,2}')
 FRONTEND = PROJECT_ROOT / 'frontend'
 
@@ -46,6 +48,13 @@ def validate_export(payload):
 
 
 def public_error(line):
+    if '清单' in line or '试卷总数' in line or '搜索结果未更新' in line:
+        # These are credential-free reconciliation diagnostics, useful for missing papers.
+        return line[:500]
+    if '课程编号' in line:
+        return '试卷课程编号不匹配或无法确认，未导出；请核对该条目。'
+    if '封面的学年不一致' in line or '封面的考试类型不一致' in line:
+        return '网站信息与实际试卷的学年或考试类型不一致，未发布；请核对该条目。'
     if '名称冲突' in line:
         return '不同试卷使用了相同归档名称，已保留原文件，请核对网站信息。'
     if '课程编号与请求不一致' in line:
@@ -76,7 +85,7 @@ class Jobs:
         self.cancel_requested = threading.Event()
         self.cancel_file = None
         self.closing = False
-        self.state = {'active': False, 'phase': 'idle', 'message': '想找哪门课？我来帮你整理。',
+        self.state = {'build': BUILD_INFO, 'active': False, 'phase': 'idle', 'message': '想找哪门课？我来帮你整理。',
                       'login_ready': False, 'results': [], 'output_dir': str(self.preferences.path),
                       'default_output_dir': str(self.preferences.default), 'job_output_dir': None,
                       'finished': 0, 'folder_busy': False, 'warning': self.preferences.warning,
@@ -162,9 +171,10 @@ class Jobs:
             environment['XJTLUPAPERFORGE_BROWSER'] = self.job_browser
         if self.cancel_file:
             environment['XJTLUPAPERFORGE_CANCEL_FILE'] = str(self.cancel_file)
-        command = [sys.executable, '-u', str(PROJECT_ROOT / script), *args]
+        command = script_command(script, *args)
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         with log.open('w', encoding='utf-8') as stream:
+            stream.write(json.dumps(dict(build=BUILD_INFO, worker=script), ensure_ascii=False) + '\n')
             with subprocess.Popen(command, cwd=PROJECT_ROOT, env=environment, stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT, encoding='utf-8', errors='replace',
                                   creationflags=flags) as process:
@@ -179,7 +189,11 @@ class Jobs:
             if line.startswith(PREFIX):
                 try:
                     event = json.loads(line[len(PREFIX):])
+                    if not isinstance(event, dict):
+                        raise ValueError('Invalid event')
                 except ValueError:
+                    if row is not None:
+                        add_error(row, '收到损坏的进度记录，无法确认任务完整。')
                     return
                 kind = event.get('event')
                 if kind == 'phase' and not self.cancel_requested.is_set():
@@ -197,38 +211,33 @@ class Jobs:
                                 message=f'正在整理 {self.state["current_course"]}。')
                 if row is None:
                     return
-                if kind == 'catalog':
-                    row['expected'] = event['total']
-                elif kind == 'paper':
+                consume_result(row, event)
+                if kind == 'paper':
                     self.state.update(current_file=event.get('name', ''), pages_done=0,
                                       pages_total=None)
                     if 'retry' in event:
                         self.state['retrying'] = bool(event['retry'])
                 elif kind == 'pages':
-                    self.state.update(pages_done=event['done'], pages_total=event['total'])
-                elif kind == 'verified':
-                    self.add_paper(row, event['name'], event['pages'])
+                    done, total = event.get('done'), event.get('total')
+                    if type(done) is int and type(total) is int and 0 <= done <= total:
+                        self.state.update(pages_done=done, pages_total=total)
+                    else:
+                        add_error(row, '收到无效的页数进度记录。')
+                elif kind == 'fatal':
+                    add_error(row, public_error(str(event.get('error', ''))))
                 return
             if row is None:
                 return
             found = re.search(r'共发现 (\d+) 套试卷', line)
             if found:
-                row['expected'] = int(found[1])
-                row['message'] = f'找到 {found[1]} 套，正在导出并校验'
-            paper = re.search(r'✓ (.+\.pdf)（(\d+) 页，已校验）', line)
-            if paper:
-                self.add_paper(row, paper[1], int(paper[2]))
+                try:
+                    set_expected(row, int(found[1]))
+                except ValueError as exc:
+                    add_error(row, str(exc))
             if line.startswith('✗') or line.startswith('导出未完成:'):
                 error = public_error(line)
                 if error not in row['errors']:
                     row['errors'].append(error)
-            if '未找到' in line and '试卷' in line:
-                row.update(expected=0, message='网站未找到该课程的试卷')
-
-    def add_paper(self, row, name, pages):
-        if not any(p['name'] == name for p in row['papers']):
-            row['papers'].append(dict(name=name, pages=pages))
-        row['message'] = f"已完成 {len(row['papers'])} 套"
 
     def work(self, kind, courses, scale):
         try:
@@ -252,21 +261,31 @@ class Jobs:
                 code = self.runner('batch_capture.py', [row['course'], '--scale', str(scale)],
                                    lambda line: self.consume(row, line))
                 self.check_cancel()
+                self.update(phase='validating', message=f"正在逐份复核 {row['course']} 的清单与磁盘文件。")
+                disk_errors = audit_files(row, self.state['job_output_dir'] or self.state['output_dir'],
+                                          scale, self.check_cancel)
                 with self.lock:
-                    if code == 0 and row['expected'] == 0:
-                        row.update(status='empty', message='网站未找到该课程的试卷')
-                    elif code == 0 and row['papers'] and len(row['papers']) == row['expected']:
-                        row.update(status='complete', message=f"{len(row['papers'])} 套已通过校验")
-                    else:
-                        row.update(status='partial' if row['papers'] else 'failed',
-                                   message=row['errors'][0] if row['errors'] else public_error(''))
+                    finalize_result(row, code, disk_errors, public_error)
+                    row['exit_code'] = code
                     self.state['finished'] = index + 1
+            # A previous course can change on disk while later courses run.
+            # Reconcile the whole job at the boundary where we announce success.
+            if len(self.state['results']) > 1:
+                self.update(phase='validating', message='正在复核本次所有课程的最终文件。')
+                for row in self.state['results']:
+                    disk_errors = audit_files(row, self.state['job_output_dir'] or self.state['output_dir'],
+                                              scale, self.check_cancel)
+                    with self.lock:
+                        finalize_result(row, row['exit_code'], disk_errors, public_error)
             with self.lock:
                 self.check_cancel()
                 failures = any(r['status'] != 'complete' for r in self.state['results'])
                 count = sum(len(r['papers']) for r in self.state['results'])
+                totals_known = all(r['expected'] is not None for r in self.state['results'])
+                total = sum(r['expected'] or 0 for r in self.state['results']) if totals_known else '?'
                 self.state.update(phase='review' if failures else 'done',
-                                  message=f'处理结束，{count} 份 PDF 已通过校验。' + (' 部分课程需要核对或重试。' if failures else ''))
+                                  message=(f'归档未完成：已校验 {count}/{total} 份，请查看下方未完成原因。' if failures
+                                           else f'归档完成：{count}/{total} 份 PDF 已通过清单与磁盘复核。'))
         except TaskCancelled:
             with self.lock:
                 for row in self.state['results']:
@@ -340,7 +359,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed(api=self.path.startswith('/api/')):
             return
         if self.path == '/health':
-            return self.send(200, {'app': APP_NAME, 'instance': self.server.instance})
+            return self.send(200, {'app': APP_NAME, 'instance': self.server.instance, **BUILD_INFO})
         if self.path == '/api/status':
             return self.send(200, self.server.jobs.snapshot())
         assets = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -418,6 +437,8 @@ def existing_url(state_file):
         with urlopen(url + '/health', timeout=1) as response:
             health = json.load(response)
         if isinstance(health, dict) and health.get('app') == APP_NAME and health.get('instance') == state.get('instance'):
+            if any(health.get(key) != value for key, value in BUILD_INFO.items()):
+                raise RuntimeError('该位置仍运行着其他版本的工作台，请先在旧工作台点击“退出应用”，再启动当前版本。')
             return url
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -436,14 +457,14 @@ def main():
             while time.monotonic() < deadline:
                 if url := existing_url(state_file):
                     if args.open:
-                        webbrowser.open(url)
+                        open_workbench(url, DATA_ROOT)
                     print(url, flush=True)
                     return
                 time.sleep(.1)
             raise RuntimeError('工作台正在启动或退出，请稍后重试。')
         if url := existing_url(state_file):
             if args.open:
-                webbrowser.open(url)
+                open_workbench(url, DATA_ROOT)
             print(url, flush=True)
             return
         serve_workbench(state_file, args.open)
@@ -455,9 +476,9 @@ def serve_workbench(state_file, open_browser=False):
     state_file.write_text(json.dumps({'port': server.server_port, 'instance': server.instance,
                                      'project_root': str(PROJECT_ROOT)}), encoding='utf-8')
     print(url, flush=True)
-    if open_browser:
-        webbrowser.open(url)
     try:
+        if open_browser:
+            open_workbench(url, DATA_ROOT)
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass

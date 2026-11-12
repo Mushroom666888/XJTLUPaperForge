@@ -208,7 +208,11 @@ class FullStackBrowserTests(unittest.TestCase):
                     expect(page.locator('#output-path')).to_have_text(str(output))
                     page.locator('#courses').fill('CAN209');page.locator('input[value="3.125"]').check()
                     page.locator('#submit').click()
-                    expect(page.locator('#phase')).to_have_text('归档完成',timeout=60000)
+                    try:
+                        expect(page.locator('#phase')).to_have_text('归档完成',timeout=60000)
+                    except AssertionError as exc:
+                        logs = '\n'.join(path.read_text(encoding='utf-8') for path in (root/'runtime/logs').glob('*.log'))
+                        self.fail(f'{exc}\nState: {jobs.snapshot()}\nSynthetic worker logs:\n{logs}')
                     expect(page.locator('#progress-count')).to_have_text('1 / 1 门')
                     self.assertEqual(errors,[])
                     expected=output/'CAN209'/'CAN209_2023-24_F.pdf'

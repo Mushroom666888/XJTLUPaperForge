@@ -1,3 +1,5 @@
+> Historical acceptance records below apply to their stated versions. The 2026-11-12 follow-up changes the inventory/completion contract and packaging. Current fixes, regression results and unverified native targets are recorded in [FIXES_2026-11-12.md](FIXES_2026-11-12.md). No new live-school validation is implied by earlier runs.
+
 # Frontend verification
 
 The workbench is served directly by Python; there is no TypeScript/npm build or ESLint configuration. All UI assets are local.

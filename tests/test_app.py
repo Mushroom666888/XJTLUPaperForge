@@ -11,6 +11,7 @@ from app import Jobs, Server, validate_export
 from output_preferences import OutputPreferences
 from unittest.mock import patch
 from install import install_skill
+from result_fixtures import event, plan, verified, summary
 
 
 class WorkflowTests(unittest.TestCase):
@@ -32,21 +33,26 @@ class WorkflowTests(unittest.TestCase):
                 validate_export(payload)
 
     def test_success_partial_and_zero_results_remain_distinct(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        output = Path(temp.name) / 'output'
         def runner(script, args, consume):
             if script == 'login.py':
                 return 0
             code = args[0]
+            items = plan(consume, code, 0 if code == 'NON000' else 2)
             if code == 'NON000':
-                consume('未找到 NON000 的试卷。')
+                summary(consume, items)
                 return 0
-            consume('共发现 2 套试卷，开始导出 PDF。')
-            consume(f'✓ {code}_2025-26_F.pdf（9 页，已校验）')
+            verified(consume, output, code, items[0])
             if code == 'DEF456':
-                consume('✗ 网站将试卷标记为封存')
+                event(consume, 'paper_failed', id=items[1]['id'], error='网站将试卷标记为封存')
+                summary(consume, items, items[:1], items[1:])
                 return 1
-            consume(f'✓ {code}_2025-26_R.pdf（8 页，已校验）')
+            verified(consume, output, code, items[1])
+            summary(consume, items)
             return 0
-        jobs = Jobs(runner)
+        jobs = Jobs(runner, OutputPreferences(Path(temp.name)/'prefs.json', output))
         jobs.state['results'] = [dict(course=code, status='pending', expected=None, papers=[], errors=[], message='')
                                  for code in ['ABC123', 'DEF456', 'NON000']]
         jobs.work('export', ['ABC123', 'DEF456', 'NON000'], 2)
@@ -54,7 +60,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in state['results']], ['complete', 'partial', 'empty'])
         self.assertEqual(state['phase'], 'review')
         self.assertFalse(state['active'])
-        self.assertIn('封存', state['results'][1]['message'])
+        self.assertIn('封存', ' '.join(state['results'][1]['errors']))
 
     def test_failed_login_does_not_start_an_export(self):
         calls = []
@@ -110,9 +116,11 @@ class LocalApiTests(unittest.TestCase):
         for path, payload, token, headers in [('/api/status', None, False, {}),
                                              ('/api/login', {}, True, {'Origin': 'https://example.test'}),
                                              ('/', None, False, {'Host': 'attacker.test'})]:
-            with self.assertRaises(HTTPError) as error:
-                self.request(path, payload, token, **headers)
-            self.assertEqual(error.exception.code, 403)
+            with self.subTest(path=path, token=token, headers=headers):
+                with self.assertRaises(HTTPError) as error:
+                    self.request(path, payload, token, **headers)
+                self.assertEqual(error.exception.code, 403)
+                error.exception.close()
 
     def test_invalid_export_does_not_start_job(self):
         with self.assertRaises(HTTPError) as error:
@@ -164,8 +172,9 @@ class FrontendTests(unittest.TestCase):
         def runner(script, args, consume):
             self.calls.append((script, args))
             if script != 'login.py':
-                consume('共发现 1 套试卷，开始导出 PDF。')
-                consume(f'✓ {args[0]}_2025-26_F.pdf（9 页，已校验）')
+                items = plan(consume, args[0], 1)
+                verified(consume, self.root/'output', args[0], items[0], f'{args[0]}_2025-26_F.pdf')
+                summary(consume, items)
             return 0
         self.server = Server(jobs=Jobs(runner, OutputPreferences(self.root/'preferences.json', self.root/'output')))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -187,7 +196,7 @@ class FrontendTests(unittest.TestCase):
         self.page.locator('#courses').fill('abc123, DEF456 abc123')
         self.page.locator('input[value="3.125"]').check()
         self.page.locator('#submit').click()
-        expect(self.page.locator('#message')).to_have_text('处理结束，2 份 PDF 已通过校验。')
+        expect(self.page.locator('#message')).to_have_text('归档完成：2/2 份 PDF 已通过清单与磁盘复核。')
         expect(self.page.locator('.result.complete')).to_have_count(2)
         expect(self.page.locator('.file-list')).to_contain_text(['ABC123_2025-26_F.pdf', 'DEF456_2025-26_F.pdf'])
         self.assertEqual(self.calls, [('login.py', []), ('batch_capture.py', ['ABC123', '--scale', '3.125']),
@@ -294,14 +303,15 @@ class FrontendTests(unittest.TestCase):
         from playwright.sync_api import expect
         def runner(script,args,consume):
             if script == 'login.py': return 0
-            consume('共发现 2 套试卷')
-            consume('✓ CAN209_2025_F.pdf（3 页，已校验）')
-            consume('✗ 网站将试卷标记为封存')
+            items = plan(consume, 'CAN209', 2)
+            verified(consume, self.root/'output', 'CAN209', items[0])
+            event(consume, 'paper_failed', id=items[1]['id'], error='网站将试卷标记为封存')
+            summary(consume, items, items[:1], items[1:])
             return 1
         self.server.jobs.runner = runner
         self.page.locator('#courses').fill('CAN209');self.page.locator('#submit').click()
         expect(self.page.locator('.result.partial')).to_have_count(1)
-        expect(self.page.locator('#phase')).to_have_text('需要核对')
+        expect(self.page.locator('#phase')).to_have_text('归档未完成')
         expect(self.page.locator('#progress-count')).to_have_text('0 / 1 门')
         expect(self.page.locator('#submit')).to_contain_text('重新整理')
         self.server.jobs.runner = lambda *args: 1
@@ -309,6 +319,51 @@ class FrontendTests(unittest.TestCase):
         expect(self.page.locator('#phase')).to_have_text('未完成')
         expect(self.page.locator('.result.partial')).to_have_count(0)
         expect(self.page.locator('#open-results')).to_be_hidden()
+
+    def test_int305_five_planned_four_exported_cannot_show_completion(self):
+        from playwright.sync_api import expect
+        def runner(script, args, consume):
+            if script == 'login.py': return 0
+            items = plan(consume, 'INT305', 5)
+            for item in items[:4]:
+                verified(consume, self.root/'output', 'INT305', item)
+            consume('共发现 4 套试卷')
+            summary(consume, items, items[:4])
+            return 0
+        self.server.jobs.runner = runner
+        self.page.locator('#courses').fill('INT305')
+        self.page.locator('#submit').click()
+        # This fixture creates and independently audits four actual PDFs.
+        expect(self.page.locator('#phase')).to_have_text('归档未完成', timeout=15000)
+        expect(self.page.locator('#message')).to_contain_text('4/5')
+        expect(self.page.locator('.result-errors')).to_contain_text('INT305 exam 5')
+        expect(self.page.locator('.result.complete')).to_have_count(0)
+        expect(self.page.locator('.file-list li')).to_have_count(4)
+        self.page.set_viewport_size({'width': 320, 'height': 800})
+        self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        self.assertEqual(self.errors, [])
+
+    def test_multicourse_final_screen_rejects_file_lost_during_later_course(self):
+        from playwright.sync_api import expect
+        files = []
+        def runner(script, args, consume):
+            if script == 'login.py': return 0
+            course = args[0]
+            items = plan(consume, course, 1)
+            files.append(verified(consume, self.root/'output', course, items[0])[0])
+            if course == 'EEE211': files[0].unlink()
+            summary(consume, items)
+            return 0
+        self.server.jobs.runner = runner
+        self.page.locator('#courses').fill('CAN209 EEE211')
+        self.page.locator('#submit').click()
+        expect(self.page.locator('#phase')).to_have_text('归档未完成', timeout=15000)
+        expect(self.page.locator('#message')).to_contain_text('1/2')
+        expect(self.page.locator('.result.failed')).to_contain_text('文件不存在')
+        expect(self.page.locator('.result.complete')).to_have_count(1)
+        expect(self.page.locator('.file-list li')).to_have_count(1)
+        expect(self.page.locator('#progress-count')).to_have_text('1 / 2 门')
+        self.assertEqual(self.errors, [])
 
     def test_cancel_button_reaches_cooperative_worker(self):
         from playwright.sync_api import expect

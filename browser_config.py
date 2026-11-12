@@ -3,8 +3,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
+import webbrowser
 
 NAMES = {'chrome': 'Google Chrome', 'edge': 'Microsoft Edge', 'brave': 'Brave', 'chromium': 'Chromium'}
 
@@ -48,6 +50,27 @@ def preferred_browser(data_root, available=None):
         return 'chrome'
     fallback = saved_fallback(data_root)
     return fallback if fallback in available else None
+
+
+def open_workbench(url, data_root):
+    """Open the UI in Chrome even when the OS default is another browser.
+
+    Without Chrome or a saved choice, the system browser only displays the
+    workbench so the user can select a school browser; it does not select one.
+    This opens an ordinary UI tab, without accessing school profiles or CDP.
+    """
+    available = detect_browsers()
+    selected = preferred_browser(data_root, available)
+    if selected:
+        try:
+            subprocess.Popen([available[selected], url], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=os.name != 'nt')
+        except OSError as exc:
+            raise RuntimeError(f'无法打开 {NAMES[selected]} 工作台窗口。请检查浏览器能否启动后重试。') from exc
+        return
+    if not webbrowser.open(url):
+        raise RuntimeError(f'无法打开工作台窗口，请在浏览器中访问 {url}。')
 
 
 class BrowserPreferences:

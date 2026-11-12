@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="paperforge-token"]').content;
 const coursePattern = /^[A-Z]{3}\d{3}[A-Z]{0,2}$/;
-const labels = {pending:'等待中', working:'整理中', complete:'已校验', partial:'部分完成', failed:'未完成', empty:'无结果', cancelled:'已取消'};
+const labels = {pending:'等待中', working:'整理中', complete:'全部已校验', partial:'归档未完成', failed:'未完成', empty:'无结果', cancelled:'已取消'};
 const moods = {
   idle: ['idle', '哪门课？让我想想。', '准备就绪'],
   starting: ['starting', '好，准备出发。', '正在连接'],
@@ -13,7 +13,7 @@ const moods = {
   validating: ['validating', '每一页，都要检查好。', '校验 PDF'],
   connected: ['starting', '连接好了，随时出发。', '账号已连接'],
   done: ['success', '整理好啦，安心复习吧。', '归档完成'],
-  review: ['issue', '有几份，还需要看看。', '需要核对'],
+  review: ['issue', '还有试卷未完成，请核对。', '归档未完成'],
   error: ['issue', '遇到一点小状况。', '未完成'],
   cancelling: ['validating', '好，我们先停一下。', '正在停止'],
   cancelled: ['validating', '休息一下，下次接着来。', '已取消'],
@@ -117,6 +117,11 @@ function renderResults(rows) {
     const head = element('div', 'result-head');
     head.append(element('span', 'course-name', row.course), element('span', 'result-status', labels[row.status]));
     card.append(head, element('p', 'result-message', row.message));
+    if (row.errors?.length) {
+      const errors = element('ul', 'result-errors');
+      row.errors.forEach(reason => errors.append(element('li', '', reason)));
+      card.append(errors);
+    }
     if (row.papers.length) {
       const details = element('details'); details.dataset.course = row.course; details.open = opened.has(row.course);
       const summary = element('summary', '', `查看 ${row.papers.length} 份 PDF`);
@@ -129,6 +134,10 @@ function renderResults(rows) {
   if (focusedCourse) [...document.querySelectorAll('.result details')].find(node => node.dataset.course === focusedCourse)?.querySelector('summary').focus({preventScroll:true});
 }
 function render(state) {
+  if (state.build) {
+    $('app-version').textContent = `PaperForge ${state.build.version} · ${state.build.source_sha256.slice(0, 12)}`;
+    $('app-version').title = `用于核对版本：${state.build.source_sha256}`;
+  }
   latestState = state;
   const browser = state.browser;
   if (browser) {

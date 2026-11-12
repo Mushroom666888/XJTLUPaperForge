@@ -21,7 +21,7 @@ if sys.platform == 'win32':
         pass
 
 from task_events import check_cancelled, emit
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from browser_session import open_chrome
 from settings import PROFILE_DIR
 
@@ -38,10 +38,6 @@ FINAL_PATTERN = re.compile(r'\bFINAL\b', re.IGNORECASE)
 def parse_exam_metadata(page, *, timeout_ms=10000):
     """从首页文字提取元数据；无可用文字时识别首页画布。"""
     check_cancelled()
-    layer_text = page.evaluate("""() => {
-        const layer = document.querySelector('.textLayer');
-        return layer ? (layer.textContent || '') : '';
-    }""") or ""
     pdf_text = page.evaluate("""async ({timeoutMs}) => {
         let timer;
         const read = async () => {
@@ -67,7 +63,9 @@ def parse_exam_metadata(page, *, timeout_ms=10000):
         }
     }""", {"timeoutMs": timeout_ms}) or ""
     check_cancelled()
-    text = f"{layer_text} {pdf_text}"
+    # A DOM text layer can belong to a previous page/document. Read page 1
+    # from the actual PDF, or OCR its freshly rendered canvas.
+    text = pdf_text
     metadata = parse_metadata_from_text(text)
     if metadata[0] != "UNKNOWN" and metadata[1] != "unknown" and (
         bool(RESIT_PATTERN.search(text)) != bool(FINAL_PATTERN.search(text))
@@ -134,7 +132,7 @@ def parse_metadata_from_text(text):
 
 
 def resolve_paper_metadata(link_text, row_text, detail_text, pdf_viewer, course_code):
-    """优先使用网站的试卷信息，PDF 仅补全网站缺失的字段。"""
+    """网站字段用于命名；实际封面的课程身份始终独立核对。"""
     code, year, exam_type = "UNKNOWN", "unknown", None
     for source in (row_text, link_text, detail_text):
         if not source:
@@ -154,16 +152,20 @@ def resolve_paper_metadata(link_text, row_text, detail_text, pdf_viewer, course_
         if code != "UNKNOWN" and year != "unknown" and exam_type is not None:
             break
 
-    if code == "UNKNOWN" or year == "unknown" or exam_type is None:
-        pdf_code, pdf_year, pdf_type = parse_exam_metadata(pdf_viewer)
-        if pdf_code != "UNKNOWN" and pdf_code != course_code.upper():
-            raise ValueError("PDF 的课程编号与请求不一致，未借用其他课程的信息。")
-        if code == "UNKNOWN":
-            code = pdf_code
-        if year == "unknown":
-            year = pdf_year
-        if exam_type is None:
-            exam_type = pdf_type
+    pdf_code, pdf_year, pdf_type = parse_exam_metadata(pdf_viewer)
+    if pdf_code == "UNKNOWN":
+        raise ValueError("无法确认 PDF 封面的课程编号，未发布身份未确认的试卷。")
+    if pdf_code != course_code.upper():
+        raise ValueError("PDF 的课程编号与请求不一致，未借用其他课程的信息。")
+    if year != 'unknown' and pdf_year != 'unknown' and year != pdf_year:
+        raise ValueError('网站与 PDF 封面的学年不一致，未将其他学年试卷归档。')
+    if exam_type is not None and pdf_type in {'F', 'R'} and exam_type != pdf_type:
+        raise ValueError('网站与 PDF 封面的考试类型不一致，未将其他考试试卷归档。')
+    code = pdf_code
+    if year == "unknown":
+        year = pdf_year
+    if exam_type is None:
+        exam_type = pdf_type
 
     return (course_code if code == "UNKNOWN" else code,
             year, "unknown" if exam_type is None else exam_type)
@@ -322,18 +324,54 @@ def agree_and_search(page, course_code, *, timeout_ms=30000):
     search_input.fill(course_code)
     search_input.press("Tab")
     print(f"搜索 {course_code}，等待服务器完成查询...")
-    with page.expect_response(
-        lambda response: (
-            urlsplit(response.url).path == "/api/v1/Search/Search"
-            and course_code.upper() in (response.request.post_data or "").upper()
-        ),
-        timeout=timeout_ms,
-    ) as pending:
-        page.locator("button.search-btn:not(.ivu-btn-long)").click()
-    response = pending.value
-    if response.status != 200:
-        raise RuntimeError(f"试卷检索请求失败（HTTP {response.status}），请重新登录或稍后重试。")
-    page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    # Network idle / HTTP 200 alone can precede a Vue DOM update, or leave the
+    # previous successful search visible after an application-level error.
+    page.evaluate('''() => {
+        window.__paperforgeSearchRefresh?.observer.disconnect();
+        const selector = "a[href*='PaperDetail'], .ivu-page-total, .el-pagination__total, " +
+            ".ant-pagination-total-text, [data-total-count]";
+        const relevant = (node, descendants = false) => {
+            const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+            return el && (el.matches(selector) || el.closest(selector) || (descendants && el.querySelector(selector)));
+        };
+        const state = {changed: false, lastChange: 0};
+        state.observer = new MutationObserver(records => {
+            if (records.some(record => relevant(record.target) ||
+                [...record.addedNodes, ...record.removedNodes].some(node => relevant(node, true)))) {
+                state.changed = true; state.lastChange = performance.now();
+            }
+        });
+        state.observer.observe(document.body, {subtree: true, childList: true,
+            characterData: true, attributes: true, attributeFilter: ['href', 'data-total-count']});
+        window.__paperforgeSearchRefresh = state;
+    }''')
+    try:
+        with page.expect_response(
+            lambda response: (
+                urlsplit(response.url).path == "/api/v1/Search/Search"
+                and re.search(r'(?<![A-Z0-9])' + re.escape(course_code.upper()) + r'(?![A-Z0-9])',
+                              (response.request.post_data or "").upper()) is not None
+            ),
+            timeout=timeout_ms,
+        ) as pending:
+            page.locator("button.search-btn:not(.ivu-btn-long)").click()
+        response = pending.value
+        if response.status != 200:
+            raise RuntimeError(f"试卷检索请求失败（HTTP {response.status}），请重新登录或稍后重试。")
+        page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        try:
+            page.wait_for_function('''() => {
+                const state = window.__paperforgeSearchRefresh;
+                return state?.changed && performance.now() - state.lastChange >= 500;
+            }''', timeout=timeout_ms)
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError('搜索结果未更新，无法确认页面属于本次查询；请重新搜索。') from exc
+    finally:
+        if not page.is_closed():
+            page.evaluate('''() => {
+                window.__paperforgeSearchRefresh?.observer.disconnect();
+                delete window.__paperforgeSearchRefresh;
+            }''')
     check_cancelled()
     if search_input.input_value().strip().upper() != course_code.upper():
         raise RuntimeError("页面初始化重置了课程查询，请重试，未使用未筛选的结果。")
@@ -398,16 +436,28 @@ def _capture_rendered_page(page, page_num, scale, timeout_ms=30000):
                     Math.abs(view.scale - scale) < 0.001 &&
                     canvas && canvas === view.canvas &&
                     canvas.width > 0 && canvas.height > 0) {
+                    if (!view.viewport ||
+                        !Number.isFinite(view.viewport.width) || !Number.isFinite(view.viewport.height)) {
+                        return {ok: false, reason: '无法确认源页面尺寸'};
+                    }
                     if (view.viewport &&
                         (canvas.width + 2 < view.viewport.width ||
                          canvas.height + 2 < view.viewport.height)) {
                         return {ok: false, reason: '画布分辨率低于目标缩放，未保存该页'};
+                    }
+                    const source = view.pdfPage?.getViewport({scale: 1});
+                    const widthPoints = source?.width ?? view.viewport.width / (scale * 96 / 72);
+                    const heightPoints = source?.height ?? view.viewport.height / (scale * 96 / 72);
+                    if (!(widthPoints > 0 && heightPoints > 0) ||
+                        !Number.isFinite(widthPoints) || !Number.isFinite(heightPoints)) {
+                        return {ok: false, reason: '源页面尺寸无效'};
                     }
                     return {
                         ok: true,
                         dataURL: canvas.toDataURL('image/png'),
                         width: canvas.width,
                         height: canvas.height,
+                        widthPoints, heightPoints,
                     };
                 }
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -418,7 +468,7 @@ def _capture_rendered_page(page, page_num, scale, timeout_ms=30000):
     )
 
 
-def extract_canvas_pages(page, output_dir, scale=2.0):
+def extract_canvas_pages(page, output_dir, scale=2.0, *, page_sizes=None):
     """
     逐页提取 Canvas 为 PNG，保存到 output_dir。
     返回成功提取的页数。
@@ -446,6 +496,8 @@ def extract_canvas_pages(page, output_dir, scale=2.0):
         filepath = os.path.join(output_dir, filename)
         with open(filepath, "wb") as f:
             f.write(img_data)
+        if page_sizes is not None:
+            page_sizes.append([result['widthPoints'], result['heightPoints']])
 
         success += 1
         emit("pages", done=success, total=total)
@@ -466,61 +518,83 @@ def collect_search_results(page):
     """从当前搜索结果页抓取试卷链接及其所在结果行的文字。"""
     return page.evaluate("""() => {
         const links = document.querySelectorAll("a[href*='PaperDetail']");
-        return Array.from(links).map((a, i) => {
+        const rows = new Map();
+        return Array.from(links).flatMap((a, i) => {
+            if (!a.getClientRects().length || getComputedStyle(a).visibility === 'hidden') return [];
             const row = a.closest('tr, li, .el-table__row') || a.parentElement;
-            return {
+            const seen = rows.get(row) || new Set();
+            rows.set(row, seen);
+            if (seen.has(a.href)) return [];
+            seen.add(a.href);
+            return [{
                 href: a.href,
                 text: (a.textContent || '').trim().substring(0, 300),
                 site_text: (row?.innerText || '').trim().substring(0, 1500),
                 index: i
-            };
+            }];
         });
     }""")
 
 
+def read_search_total(page):
+    """Read an independent, visible school total; never infer it from links."""
+    values = page.evaluate('''() => [...document.querySelectorAll(
+        '.ivu-page-total, .el-pagination__total, .ant-pagination-total-text, [data-total-count]'
+    )].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').map(el => ({
+        count: el.getAttribute('data-total-count'), text: el.innerText
+    }))''')
+    totals = set()
+    for value in values:
+        count, text = value.get('count'), value.get('text', '')
+        if count is not None and re.fullmatch(r'\d+', count.strip()):
+            totals.add(int(count))
+        for pattern in (r'\bTotal\s*:?\s*([\d,]+)\b', r'共\s*([\d,]+)\s*(?:条|份|套|项)',
+                        r'\bof\s+([\d,]+)\s+(?:items|results|records)\b'):
+            for match in re.finditer(pattern, text, re.I):
+                totals.add(int(match[1].replace(',', '')))
+    if len(totals) > 1:
+        raise RuntimeError('学校页面显示了互相矛盾的试卷总数，无法确认清单完整。')
+    return next(iter(totals)) if totals else None
+
+
+NEXT_SELECTORS = (
+    '.ivu-page-next', '.el-pagination button.btn-next', '.ant-pagination-next',
+    'button:has-text("Next")', 'a:has-text("Next")',
+)
+
+
+def _next_control(page):
+    for selector in NEXT_SELECTORS:
+        check_cancelled()
+        for control in page.locator(selector).all():
+            if control.is_visible() and control.is_enabled() and not control.evaluate('''el =>
+                Boolean(el.closest('[disabled], [aria-disabled="true"], .disabled,
+                    .ivu-page-disabled, .ant-pagination-disabled, .is-disabled'))
+            '''.replace('\n', ' ')):
+                return control
+    return None
+
+
 def has_next_page(page):
-    """检测搜索结果是否有下一页"""
-    selectors = [
-        ".el-pagination button.btn-next:not([disabled])",
-        ".el-pager + button:not([disabled])",
-        "button:has-text('Next')",
-        "a:has-text('Next')",
-        "[class*='pagination'] button:last-child:not([disabled])",
-        ".el-icon-arrow-right",
-    ]
-    for sel in selectors:
-        check_cancelled()
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_enabled():
-                return True
-        except Exception:
-            pass
-    return False
+    return _next_control(page) is not None
 
 
-def go_to_next_page(page):
-    """点击下一页，等待结果加载。返回是否成功。"""
-    selectors = [
-        ".el-pagination button.btn-next",
-        ".el-pager + button",
-        "button:has-text('Next')",
-        "a:has-text('Next')",
-        "[class*='pagination'] button:last-child",
-        ".el-icon-arrow-right",
-    ]
-    for sel in selectors:
+def go_to_next_page(page, timeout_ms=30000):
+    """Require changed result links; a click or URL change alone proves nothing."""
+    control = _next_control(page)
+    if control is None:
+        return False
+    before = {item['href'] for item in collect_search_results(page)}
+    control.click()
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
         check_cancelled()
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_enabled():
-                url_before = page.url
-                el.click()
-                page.wait_for_timeout(2000)
-                return True
-        except Exception:
-            pass
-    return False
+        current = {item['href'] for item in collect_search_results(page)}
+        if current and current != before:
+            page.wait_for_load_state('networkidle', timeout=timeout_ms)
+            return True
+        page.wait_for_timeout(100)
+    raise RuntimeError('翻页后搜索结果未更新，试卷清单尚未收集完整。')
 
 
 # ═══════════════════════════════════════════════════════════════

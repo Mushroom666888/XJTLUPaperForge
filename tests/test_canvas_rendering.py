@@ -32,7 +32,7 @@ class CanvasRenderingTests(unittest.TestCase):
         self.page.set_content('<div class="page" data-page-number="1"><canvas width="20" height="30"></canvas></div>')
         self.page.evaluate('''() => {
             const canvas = document.querySelector('canvas');
-            const view = {canvas, scale: 2, renderingState: 1};
+            const view = {canvas, scale: 2, renderingState: 1, viewport: {width:20, height:30}};
             window.testView = view;
             window.PDFViewerApplication = {
                 page: 1, pdfViewer: {currentScale: 2, getPageView: () => view}

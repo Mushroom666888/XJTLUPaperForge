@@ -1,10 +1,10 @@
 # Compatibility validation
 
-Windows with Chrome and Edge has been checked against the real school site on 2026-11-12, after the site reopened. Other agent clients and operating systems retain the explicit limits below; successful browser testing does not establish support for every host.
+The Windows school checks below are historical evidence for an earlier revision on 2026-11-12. They do **not** validate the current `0.2.0-preview.3` source or package. Current evidence and unresolved native acceptance requirements are recorded in [REVIEW_CONTINUED_2026-11-12.md](REVIEW_CONTINUED_2026-11-12.md). Other agent clients and operating systems retain the explicit limits below; successful browser testing does not establish support for every host.
 
 ## Agent / model compatibility
 
-PaperForge is a local Python app. Its skill consists of `SKILL.md`, optional host metadata and a standard-library Python launcher; it has no Codex API dependency and makes no LLM API calls. The model name alone does not determine compatibility. A host must be able to read the skill, run local commands, keep the local server running and open a local browser.
+PaperForge is a local Python app with a bundled-runtime preview. Its skill consists of `SKILL.md`, optional host metadata and a launcher that prefers the registered native executable and otherwise uses the source Python environment; it has no Codex API dependency and makes no LLM API calls. The model name alone does not determine compatibility. A host must be able to read the skill, run local commands, keep the local server running and open a local browser.
 
 | Host | Current evidence | Boundary |
 | --- | --- | --- |
@@ -70,9 +70,9 @@ At code commit `12b4e28`, [all three native CI jobs passed](https://github.com/M
 
 ## Runtime distribution
 
-The current source/Skill distribution requires an installed Python 3.10+; it does not yet bundle an interpreter. The intended portable package can carry its own runtime while retaining the same Skill, workbench, browser and PDF pipeline. Existing source installation and command-line entry points should remain available. Such a package is not currently shipped or claimed tested.
+The source distribution requires Python 3.10+. The new PyInstaller native build contains CPython, dependencies, OCR models, the frontend and Skill resources. Windows has local build and relocated smoke-test tooling; macOS/Linux use native CI jobs and remain pending current-build/native desktop acceptance. Source installation and CLI entry points remain available. See PACKAGING.md and FIXES_2026-11-12.md for current evidence; older CI and school runs below do not validate this new build.
 
-A local Agent with command execution can invoke the Skill; a chat-only Doubao/DeepSeek/Claude client cannot gain local execution merely from the model or Skill name. A future packaged launcher would allow those users to open the same workbench themselves without Python or an Agent. Chrome is preferred, and Edge remains an explicit fallback when Chrome is absent.
+A local Agent with command execution can invoke the Skill; a chat-only Doubao/DeepSeek/Claude client cannot gain local execution merely from the model or Skill name. The packaged launcher lets users open the workbench themselves without a system Python or an Agent; clean-machine acceptance must still be recorded separately. Chrome is preferred, and Edge remains an explicit fallback when Chrome is absent.
 
 ## Reproducible verification
 

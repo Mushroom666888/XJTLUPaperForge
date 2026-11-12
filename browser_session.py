@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import signal
+import psutil
 from contextlib import contextmanager
 from platform_support import require_desktop
 
@@ -221,6 +222,7 @@ def launch_detached_chrome(user_data_dir, headless=False, start_url="about:blank
         require_desktop()
     os.makedirs(user_data_dir, exist_ok=True)
     port = _reserve_port()
+    started = time.time()
     command = [
         _find_chrome(),
         f"--remote-debugging-port={port}",
@@ -254,9 +256,55 @@ def launch_detached_chrome(user_data_dir, headless=False, start_url="about:blank
         process = subprocess.Popen(
             command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
         )
-    _wait_for_debug_port(process, port)
-    write_session(port, process.pid, user_data_dir)
+    try:
+        _wait_for_debug_port(process, port)
+        write_session(port, process.pid, user_data_dir)
+    except BaseException:
+        _cleanup_failed_launch(process, port, user_data_dir, started)
+        raise
     return process, port
+
+
+def _owned_browser_processes(port, profile, started):
+    """Find this launch's browser tree even after its launcher has exited.
+
+    A cached PID alone is never an ownership credential. Require the new launch's
+    random port, exact dedicated profile and creation time; psutil protects
+    terminate/kill against PID reuse. Previously running profiles are untouched.
+    """
+    owned = []
+    wanted_profile = os.path.normcase(os.path.realpath(profile))
+    for candidate in psutil.process_iter(['cmdline', 'create_time']):
+        try:
+            args = candidate.info['cmdline'] or []
+            profiles = [arg.split('=', 1)[1] for arg in args if arg.startswith('--user-data-dir=')]
+            if (candidate.info['create_time'] >= started - 1 and
+                    f'--remote-debugging-port={port}' in args and
+                    any(os.path.normcase(os.path.realpath(p)) == wanted_profile for p in profiles)):
+                owned.extend(candidate.children(recursive=True))
+                owned.append(candidate)
+        except (psutil.Error, OSError, TypeError):
+            continue
+    return list(set(owned))
+
+
+def _cleanup_failed_launch(process, port, profile, started, *, owned=()):
+    # Keep the pre-close handles: a browser may exit and orphan a helper that
+    # does not repeat the main process's port/profile arguments.
+    owned = list(set(owned) | set(_owned_browser_processes(port, profile, started)))
+    for child in owned:
+        try:
+            child.terminate()
+        except psutil.Error:
+            pass
+    _terminate_process_tree(process)
+    _, alive = psutil.wait_procs(owned, timeout=3)
+    for child in alive:
+        try:
+            child.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(alive, timeout=3)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -293,6 +341,7 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
     if headless:
         command.insert(1, "--headless=new")
 
+    started = time.time()
     process = subprocess.Popen(
         command,
         stdout=subprocess.DEVNULL,
@@ -311,6 +360,7 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
             raise RuntimeError(f"{BROWSER_NAME} 未创建默认浏览器上下文。")
         yield browser.contexts[0]
     finally:
+        owned = _owned_browser_processes(port, profile_dir, started)
         if browser is not None:
             try:
                 # This context owns the browser. Close it explicitly; disconnecting
@@ -322,7 +372,11 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
                 browser.close()
             except Exception:
                 pass
-        _terminate_process_tree(process)
+        # Reap verified actual browser/helper processes, not just the launcher.
+        # This also handles connect/startup failures in this non-persistent path.
+        if owned:
+            psutil.wait_procs(owned, timeout=3)  # Allow Browser.close to flush its own profile first.
+        _cleanup_failed_launch(process, port, profile_dir, started, owned=owned)
         if cleanup_profile:
             # Owned temporary profile only. Browser.close may finish asynchronously.
             deadline = time.monotonic() + 3

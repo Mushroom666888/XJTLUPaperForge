@@ -15,6 +15,8 @@ from urllib.request import Request, urlopen
 from app import Jobs, Server
 from output_preferences import OutputPreferences, validate_directory, course_directory
 from task_events import PREFIX, check_cancelled, emit, TaskCancelled
+from result_fixtures import plan, verified
+from result_audit import record_id
 
 
 def wait_finished(jobs):
@@ -152,7 +154,9 @@ class ProgressTests(unittest.TestCase):
             jobs.consume(row, PREFIX + json.dumps(dict(event=kind, **kwargs)))
         event('phase', phase='searching')
         self.assertIsNone(row['expected'])
-        event('catalog', total=2)
+        items = [{'id': record_id(str(i)), 'label': f'ABC123 exam {i}'} for i in range(2)]
+        event('inventory', total=2)
+        event('catalog', total=2, items=items)
         event('paper', name='ABC123_2025_F.pdf', retry=True)
         event('paper', name='ABC123_2025_F.pdf')
         self.assertTrue(jobs.snapshot()['retrying'])
@@ -162,7 +166,7 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(jobs.snapshot()['pages_done'], 999)
         self.assertEqual(row['papers'], [])
         for _ in range(2):
-            event('verified', name='ABC123_2025_F.pdf', pages=1000)
+            event('verified', id=items[0]['id'], name='ABC123_2025_F.pdf', pages=1000, sha256='a'*64)
         self.assertEqual(len(row['papers']), 1)
         jobs.cancel_requested.set()
         jobs.update(phase='cancelling')
@@ -177,8 +181,8 @@ class ProgressTests(unittest.TestCase):
             def runner(script, args, consume):
                 calls.append(script)
                 if script == 'login.py': return 0
-                consume('共发现 2 套试卷')
-                consume('✓ ABC123_2025_F.pdf（2 页，已校验）')
+                items = plan(consume, 'ABC123', 2)
+                verified(consume, root/'output', 'ABC123', items[0])
                 jobs.cancel()
                 self.assertTrue(jobs.cancel_file.exists())
                 return 2

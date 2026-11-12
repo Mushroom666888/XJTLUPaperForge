@@ -1,0 +1,74 @@
+name: Native Python-bundled previews
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: python {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: packaging/dependencies.lock
+      - name: Assemble build environment
+        run: |
+          import subprocess, sys, venv, os
+          from pathlib import Path
+          venv.EnvBuilder(with_pip=True).create('.venv')
+          python=str(Path('.venv')/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+          subprocess.run([python,'-m','pip','install','-c','packaging/dependencies.lock','-r','packaging/requirements-build.txt'],check=True)
+          subprocess.run([python,'-m','pip','check'],check=True)
+      - name: Check browser and Ubuntu sandbox helper
+        run: |
+          import subprocess, sys, os, stat
+          from pathlib import Path
+          python=str(Path('.venv')/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+          subprocess.run([python,'-c',"from browser_config import detect_browsers; assert 'chrome' in detect_browsers()"],check=True)
+          helper=Path('/opt/microsoft/msedge/msedge-sandbox')
+          if sys.platform=='linux' and helper.exists():
+              owner=subprocess.check_output(['dpkg-query','-S',str(helper)],text=True).strip()
+              assert owner=='microsoft-edge-stable: '+str(helper)
+              assert not helper.is_symlink()
+              subprocess.run(['sudo','-n','chown','root:root',str(helper)],check=True)
+              subprocess.run(['sudo','-n','chmod','4755',str(helper)],check=True)
+      - name: Run source regression
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          python=str(Path('.venv')/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+          subprocess.run([python,'-m','unittest','discover','-s','tests','-v'],check=True)
+      - name: Build native app and archive
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          python=str(Path('.venv')/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+          subprocess.run([python,'tools/build_package.py'],check=True)
+      - name: Relocate and verify package without system Python configuration
+        run: |
+          import os, subprocess, sys
+          from pathlib import Path
+          python=str(Path('.venv')/('Scripts/python.exe' if os.name=='nt' else 'bin/python'))
+          bundle='dist/PaperForge.app' if sys.platform=='darwin' else 'dist/PaperForge'
+          subprocess.run([python,'tools/smoke_package.py',bundle],check=True)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PaperForge-${{ matrix.os }}-unsigned-preview
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/release-notes/
