@@ -13,13 +13,15 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 
 用系统 Python 3.10+ 执行启动器；它只依赖标准库，会根据安装记录定位项目，调用该项目的独立虚拟环境，启动本机网页界面，并检查服务就绪。成功时返回本地地址；不要只根据进程已创建就宣称界面可用。把该地址提供给用户，并说明在界面填写课程编号即可。
 
-`python scripts/launch.py` 中的相对路径须先按此 SKILL.md 所在目录展开为绝对路径。Windows 可用 `py -3.12` 或当前已确认的 Python 解释器。启动器正常情况下自动打开浏览器；调试时可传 `--no-browser`，仅查询安装位置可传 `--print-root`。
+`python scripts/launch.py` 中的相对路径须先按此 SKILL.md 所在目录展开为绝对路径。Windows 可用 `py -3.12`，macOS / Linux 可用 `python3`，或当前已确认的 Python 解释器。启动器正常情况下自动打开浏览器；调试时可传 `--no-browser`，仅查询安装位置可传 `--print-root`。
 
 首次使用，用户在界面点击“开始整理试卷”后，后台打开学校专用浏览器（默认 Chrome），请用户直接在学校页面完成登录。账号密码不进入聊天。登录完成后自动处理所选课程，界面显示逐份校验结果和实际输出目录。
 
 ## 安装与迁移
 
-安装由下载仓库中的 `install.py` 完成。用户要求装配已下载项目时，阅读该项目 `README.md`，运行 `py -3.12 install.py`（或可用 Python 3.10+）。默认注册到 Codex；Claude Code 使用 `install.py --agent claude`。其他兼容工具可用 `--skills-dir` 指定其 Skill 目录。已有完整环境时可加 `--skills-only` 仅注册。当前已支持的平台仍为 Windows 10/11，不把浏览器路径检测当作 macOS/Linux 完整支持。
+安装由下载仓库中的 `install.py` 完成。用户要求装配已下载项目时，阅读该项目 `README.md`，运行 `py -3.12 install.py`（macOS / Linux 使用 `python3 install.py`，要求 Python 3.10+）。默认注册到 Codex；Claude Code 使用 `install.py --agent claude`。其他兼容工具可用 `--skills-dir` 指定其 Skill 目录。已有完整环境时可加 `--skills-only` 仅注册。Windows 10/11 已有真实学校验证；macOS / Linux 是预览适配，不能将合成页面 CI 描述为已通过学校登录或真实导出验收。Linux 需要图形桌面及 Zenity/KDialog 或 Tkinter，详见项目 README。
+
+本源码包不含独立 Python 运行环境。没有 Python 时需先装配依赖，不能声称只安装豆包等聊天软件就能直接使用。程序装配完成后可独立运行，AI 工具不是运行依赖。
 
 默认优先 Google Chrome。只有找不到 Chrome 时，工作台才显示已安装的 Edge、Brave 或 Chromium 供用户选择；每种浏览器使用独立登录资料。Firefox/Safari 不能用于当前 CDP 试卷读取引擎。网页工作台的显示浏览器与后台学校登录浏览器是两个概念。
 
@@ -29,7 +31,7 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 
 ## 用户明确要求命令行批处理时
 
-以启动器 `--print-root` 返回的项目目录为工作目录，使用该项目 `.venv\Scripts\python.exe`：
+以启动器 `--print-root` 返回的项目目录为工作目录，使用该项目 `.venv\Scripts\python.exe`（macOS / Linux 改用 `.venv/bin/python`）：
 
 ```powershell
 .\.venv\Scripts\python.exe login.py
@@ -42,7 +44,7 @@ description: "打开 XJTLUPaperForge 本地试卷工作台，让用户输入西�
 
 ## 数据与质量边界
 
-- 默认试卷在项目父目录的 `XJTLUPaperForge-Output/课程编号/`，仅包含 PDF；运行资料在 `%LOCALAPPDATA%\XJTLUPaperForge`。网页保存位置可通过系统选择器更改并持久化，实际位置以界面为准。命令行默认目录由 `.env` / `XJTLUPAPERFORGE_OUTPUT` 决定，网页任务会传递本次冻结的目录。
+- 默认试卷在项目父目录的 `XJTLUPaperForge-Output/课程编号/`，仅包含 PDF；运行资料位置由 `settings.DATA_ROOT` 决定，采用对应系统的用户数据目录，不写死 Windows 路径。网页保存位置可通过系统选择器更改并持久化，实际位置以界面为准。命令行默认目录由 `.env` / `XJTLUPAPERFORGE_OUTPUT` 决定，网页任务会传递本次冻结的目录。
 - 发布或维护仓库时只收录代码、测试、依赖说明、前端及 skill；不收录真实试卷、个人下载清单、`.env`、Cookie、浏览器资料、运行日志或已安装 skill 的 `installation.json`。不自动迁移其他程序的试卷或登录状态。
 - 网站封存且没有 `View Online` 入口时说明状态，不因日期已过而猜测开放。持续网络超时后保留会话，等待恢复，避免无休止重试。
 - 不降低检查标准来宣布成功，不猜缺失页数或考试类型，不插值放大冒充高清。用户要求恢复旧备份时单独核验并披露来源、原始分辨率。

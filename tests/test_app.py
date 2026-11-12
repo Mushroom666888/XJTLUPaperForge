@@ -245,7 +245,7 @@ class FrontendTests(unittest.TestCase):
         self.page.locator('#change-output').click()
         expect(self.page.locator('#toast')).to_contain_text('保留原来')
         expect(self.page.locator('#output-path')).to_have_text(str(custom))
-        with patch('app.os.startfile', create=True) as open_folder:
+        with patch('app.open_directory') as open_folder:
             self.page.locator('#open-output').click()
             expect(self.page.locator('#open-output')).to_be_enabled()
             open_folder.assert_called_with(str(custom))

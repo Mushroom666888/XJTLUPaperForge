@@ -16,8 +16,9 @@ import subprocess
 import sys
 import tempfile
 import time
-import ctypes
+import signal
 from contextlib import contextmanager
+from platform_support import require_desktop
 
 from settings import SESSION_FILE as _SESSION_PATH
 from settings import BROWSER_KIND
@@ -61,17 +62,6 @@ def _cdp_port_alive(port, timeout=0.5):
             return True
     except OSError:
         return False
-
-
-def _pid_alive(pid):
-    """Windows 下用 OpenProcess 检测进程是否存在（不能用 os.kill(pid,0)，
-    那在 Windows 上等价于 TerminateProcess，会真的杀掉进程）。"""
-    kernel32 = ctypes.windll.kernel32
-    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if handle:
-        kernel32.CloseHandle(handle)
-        return True
-    return False
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -179,15 +169,34 @@ def clear_session():
 # ═══════════════════════════════════════════════════════════════
 
 def _terminate_process_tree(process):
-    """终止 Popen 启动的 Chrome：先 terminate 优雅退出，超时再 taskkill /T /F。"""
+    """Close only the owned Popen process/group; recorded sessions use verified CDP."""
     if process.poll() is not None:
-               return
-    process.terminate()
+        return
+    def stop_posix_group(sig):
+        try:
+            if os.getpgid(process.pid) == process.pid:
+                os.killpg(process.pid, sig)
+            elif sig == signal.SIGTERM:
+                process.terminate()
+            else:
+                process.kill()
+        except ProcessLookupError:
+            pass
+
+    if sys.platform == "win32":
+        process.terminate()
+    else:
+        stop_posix_group(signal.SIGTERM)
     try:
         process.wait(timeout=8)
         return
     except subprocess.TimeoutExpired:
         pass
+    if sys.platform != "win32":
+        if process.poll() is None:
+            stop_posix_group(signal.SIGKILL)
+        process.wait(timeout=5)
+        return
     try:
         subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
@@ -201,31 +210,6 @@ def _terminate_process_tree(process):
         pass
 
 
-def terminate_pid_tree(pid):
-    """按 PID 关闭整棵 Chrome 进程树：先 taskkill（不带 /F，发 WM_CLOSE
-    让 Chrome 优雅退出并 flush profile），失败或超时再强杀。"""
-    if not _pid_alive(pid):
-        return
-    try:
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8,
-        )
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline and _pid_alive(pid):
-            time.sleep(0.3)
-    except Exception:
-        pass
-    if _pid_alive(pid):
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
-
-
 # ═══════════════════════════════════════════════════════════════
 # 启动 detached 常驻 Chrome（login.py 使用）
 # ═══════════════════════════════════════════════════════════════
@@ -233,6 +217,8 @@ def terminate_pid_tree(pid):
 def launch_detached_chrome(user_data_dir, headless=False, start_url="about:blank"):
     """启动一个不随调用进程退出的 Chrome，写入会话状态文件。
     返回 (process, port)。调用方负责在登录失败时终止它。"""
+    if not headless:
+        require_desktop()
     os.makedirs(user_data_dir, exist_ok=True)
     port = _reserve_port()
     command = [
@@ -266,7 +252,7 @@ def launch_detached_chrome(user_data_dir, headless=False, start_url="about:blank
             )
     else:
         process = subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
         )
     _wait_for_debug_port(process, port)
     write_session(port, process.pid, user_data_dir)
@@ -284,6 +270,8 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
     user_data_dir 为 None 时使用临时 profile（退出即删）；
     传入真实 profile 路径时保留该目录（用于复用 WAF/UEBA 设备指纹与登录态）。
     """
+    if not headless:
+        require_desktop()
     if user_data_dir:
         profile_dir = user_data_dir
         cleanup_profile = False
@@ -309,9 +297,9 @@ def fresh_chrome_context(playwright, headless=False, user_data_dir=None):
         command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        # CREATE_NEW_PROCESS_GROUP 让 Chrome 子进程与主进程在同一进程组，
-        # 退出时可一次性 taskkill /T 杀掉整个进程树，避免渲染/GPU 子进程残留
+        # Give this owned browser its own process group for bounded cleanup.
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        start_new_session=sys.platform != "win32",
     )
     browser = None
     try:

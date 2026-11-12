@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from browser_config import preferred_browser, NAMES
+from platform_support import default_data_root
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / '.env')
@@ -21,7 +22,7 @@ def _path_setting(name, default):
 OUTPUT_ROOT = _path_setting('XJTLUPAPERFORGE_OUTPUT', PROJECT_ROOT.parent / 'XJTLUPaperForge-Output')
 DATA_ROOT = _path_setting(
     'XJTLUPAPERFORGE_DATA',
-    Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'XJTLUPaperForge',
+    default_data_root(),
 )
 WORK_ROOT = DATA_ROOT / 'work' / 'captures'
 BROWSER_KIND = os.environ.get('XJTLUPAPERFORGE_BROWSER') or preferred_browser(DATA_ROOT) or 'chrome'

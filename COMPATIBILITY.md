@@ -46,11 +46,31 @@ The **workbench browser** displays a local HTML page. The **school browser** is 
 
 ## Operating systems
 
-**The supported application remains Windows 10/11.** No macOS/Linux support claim is added.
+**Windows 10/11 is live-school verified. macOS and desktop Linux are preview ports on `compat/macos-linux`.** Keep their native desktop school acceptance distinct from headless CI. This development host is Windows; it does not provide a macOS desktop or installed WSL.
 
-This host has no macOS environment, and WSL reports that Linux support is not installed. Browser discovery has unit coverage for macOS application locations and Linux commands, but that does not establish a working application on those systems. The installer deliberately continues to reject unsupported platforms.
+The preview installer accepts these three systems, using `.venv/bin/python` on macOS/Linux. Runtime state follows each platform's user-data convention: `%LOCALAPPDATA%`, `~/Library/Application Support`, or absolute `$XDG_DATA_HOME` (otherwise `~/.local/share`). The output default remains `XJTLUPaperForge-Output` beside the checkout; saved custom destinations and per-task path freezing are unchanged.
 
-Concrete remaining porting work includes `os.startfile` folder opening, Windows `ctypes.windll`/`taskkill` process management, platform-specific data locations, GUI/Tk packaging and actual school SSO/PDF rendering on each target. These are engineering tasks, not an inherent model limitation. No OS installation or system-setting changes were performed to simulate proof.
+Folder selection uses Windows Tkinter, macOS `osascript` with `choose folder`, or Linux Zenity/KDialog with a Tkinter fallback. Opening a folder uses `os.startfile`, `open`, or `xdg-open`, respectively. Paths are passed as process arguments, never interpolated into shell/AppleScript source. Cancellation preserves preferences; missing tools and absent Linux graphical sessions produce actionable errors. Native macOS/Linux chooser and file-manager UX still need interactive acceptance on those desktops.
+
+Owned POSIX browsers launch in a new process session, and termination only signals that owned process group. Recorded sessions continue to require verified CDP browser identity before attaching or closing. No stored PID is blindly killed. Chrome-first selection, browser profile isolation, no-overwrite publication and all PDF checks remain in place.
+
+Linux requires a graphical session for school authentication. On Debian/Ubuntu, desktop dependencies include `python3-venv`, `python3-tk` or Zenity/KDialog, and `xdg-utils`. Headless/SSH servers can run synthetic tests but cannot perform the intended manual login. macOS uses the system folder picker without requiring Tkinter. Python packages and installed browsers must support the machine's architecture; the CI runner matrix does not establish every Linux distribution, CPU architecture or browser package (such as sandboxed Snap/Flatpak installations).
+
+```sh
+python3 install.py                         # optional: --agent claude
+.venv/bin/python doctor.py --json
+.venv/bin/python skill/xjtlu-paperforge/scripts/launch.py
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pip check
+```
+
+The CI matrix assembles clean Windows/macOS/Ubuntu checkouts and requires a detected Chrome. It runs real headless browser capture and PDF verification against synthetic pages, both installed agent-directory launchers, and the browser form → local API → child worker → custom-directory PDF flow. macOS also compiles the actual picker AppleScript; POSIX runners exercise termination of a real disposable process in its own session. These checks do not log in to the school or display native folder dialogs. Run-specific results are recorded in [VERIFICATION.md](VERIFICATION.md).
+
+## Runtime distribution
+
+The current source/Skill distribution requires an installed Python 3.10+; it does not yet bundle an interpreter. The intended portable package can carry its own runtime while retaining the same Skill, workbench, browser and PDF pipeline. Existing source installation and command-line entry points should remain available. Such a package is not currently shipped or claimed tested.
+
+A local Agent with command execution can invoke the Skill; a chat-only Doubao/DeepSeek/Claude client cannot gain local execution merely from the model or Skill name. A future packaged launcher would allow those users to open the same workbench themselves without Python or an Agent. Chrome is preferred, and Edge remains an explicit fallback when Chrome is absent.
 
 ## Reproducible verification
 
@@ -64,4 +84,4 @@ Concrete remaining porting work includes `os.startfile` folder opening, Windows 
 
 Final local verification on Windows with Python 3.12.10: **104 tests passed**, including Chrome and installed Edge; `pip check`, Skill frontmatter validation and Git whitespace checks passed. The running workbench was restarted through the installed Skill launcher, then checked in real Chrome: default Chrome selected, fallback controls hidden, `D:\XJTLUPaperForge-Output` restored, no page JavaScript errors. A running task keeps its chosen browser even if Chrome becomes available before it finishes.
 
-macOS/Linux and uninstalled agent/browser clients remain separate unverified targets. A school-site redesign, authentication change or browser update may require renewed live validation; the automated suite uses synthetic pages and never downloads school papers in CI.
+macOS/Linux live-school flows and uninstalled agent/browser clients remain separate unverified targets. A school-site redesign, authentication change or browser update may require renewed live validation; the automated suite uses synthetic pages and never downloads school papers in CI.

@@ -9,6 +9,8 @@ import subprocess
 import sys
 import venv
 
+from platform_support import SUPPORTED_PLATFORMS
+
 SKILL_NAME = 'xjtlu-paperforge'
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -51,8 +53,10 @@ def main():
     args = parser.parse_args()
     if sys.version_info < (3, 10):
         raise SystemExit('Python 3.10 or newer is required; Python 3.12 is recommended.')
-    if os.name != 'nt':
-        raise SystemExit('This release supports Windows 10/11 with Google Chrome.')
+    if sys.platform not in SUPPORTED_PLATFORMS:
+        raise SystemExit('This release targets Windows, macOS and desktop Linux.')
+    if sys.platform != 'win32':
+        print('macOS/Linux preview: school login and downloads still need verification on your desktop.', flush=True)
     interpreter = python_path(PROJECT_ROOT)
     if args.skills_only and not interpreter.is_file():
         raise SystemExit('Assemble the project first; --skills-only requires an existing .venv.')

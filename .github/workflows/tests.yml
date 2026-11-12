@@ -1,16 +1,42 @@
-name: Windows tests
+name: Desktop compatibility tests
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env:
       PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: python {0}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - run: python install.py --skills-dir "$env:RUNNER_TEMP\paperforge-ci-skills"
-      - run: .\.venv\Scripts\python.exe -m pip check
-      - run: .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+      - name: Assemble a clean checkout
+        run: |
+          import os, platform, subprocess, sys
+          from pathlib import Path
+          print(platform.platform(), platform.machine(), flush=True)
+          subprocess.run([sys.executable, 'install.py', '--skills-dir', str(Path(os.environ['RUNNER_TEMP'])/'paperforge-ci-skills')], check=True)
+      - name: Check dependencies and require real Chrome
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          python = str(Path('.venv')/('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
+          subprocess.run([python, '-m', 'pip', 'check'], check=True)
+          subprocess.run([python, '-c', "from browser_config import detect_browsers; b=detect_browsers(); print(b); assert 'chrome' in b, 'Chrome is required: browser tests must not all skip'"], check=True)
+      - name: Run regression and synthetic full-stack tests
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          python = str(Path('.venv')/('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))
+          subprocess.run([python, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)

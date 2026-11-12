@@ -169,13 +169,20 @@ class EdgeExportTests(export_tests.BrowserExportTests):
 
 class FullStackBrowserTests(unittest.TestCase):
     def test_real_edge_ui_to_worker_to_custom_verified_pdf(self):
+        self.exercise_browser('edge')
+
+    def test_real_chrome_ui_to_worker_to_custom_verified_pdf(self):
+        self.exercise_browser('chrome')
+
+    def exercise_browser(self, browser_id):
         from playwright.sync_api import sync_playwright, expect
-        edge=detect_browsers().get('edge')
-        if not edge:self.skipTest('Edge is not installed.')
+        executable=detect_browsers().get(browser_id)
+        if not executable:self.skipTest(f'{browser_id} is not installed.')
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder).resolve();output=root/'chosen papers';output.mkdir()
             prefs=OutputPreferences(root/'preferences.json',root/'default')
-            browsers=BrowserPreferences(root,lambda:{'edge':edge})  # Chrome absence is simulated, Edge itself is real.
+            # For Edge only, Chrome absence is simulated; browsers/PDFs are real.
+            browsers=BrowserPreferences(root,lambda:{browser_id:executable})
             jobs=Jobs(preferences=prefs,browsers=browsers,picker=lambda _:str(output))
             calls=[]
             def runner(script,args,consume):
@@ -186,17 +193,17 @@ class FullStackBrowserTests(unittest.TestCase):
             server=Server(jobs=jobs);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:
                 with patch.dict(os.environ,{'XJTLUPAPERFORGE_DATA':str(root/'runtime')}),patch('app.DATA_ROOT',root/'runtime'),sync_playwright() as p:
-                    browser=p.chromium.launch(executable_path=edge,headless=True)
+                    browser=p.chromium.launch(executable_path=executable,headless=True)
                     page=browser.new_page(viewport={'width':1200,'height':900});errors=[]
                     page.on('pageerror',lambda error:errors.append(str(error)))
                     page.goto(f'http://127.0.0.1:{server.server_port}')
-                    expect(page.locator('#browser-fallback')).to_be_visible()
-                    expect(page.locator('#submit')).to_be_disabled()
-                    if os.environ.get('PAPERFORGE_CAPTURE_REVIEW') == '1':
-                        page.locator('#message').evaluate("node => node.textContent = '兼容性验收：仅模拟 Chrome 缺失，Edge 为真实程序。'")
-                        page.screenshot(path=str(PROJECT_ROOT/'.impeccable/review/compat-fallback.png'),full_page=True)
-                    page.locator('#browser-choice').select_option('edge');page.locator('#save-browser').click()
-                    expect(page.locator('#browser-help')).to_contain_text('当前使用 Microsoft Edge')
+                    if browser_id == 'edge':
+                        expect(page.locator('#browser-fallback')).to_be_visible()
+                        expect(page.locator('#submit')).to_be_disabled()
+                        page.locator('#browser-choice').select_option('edge');page.locator('#save-browser').click()
+                        expect(page.locator('#browser-help')).to_contain_text('当前使用 Microsoft Edge')
+                    else:
+                        expect(page.locator('#browser-fallback')).to_be_hidden()
                     page.locator('#change-output').click()
                     expect(page.locator('#output-path')).to_have_text(str(output))
                     page.locator('#courses').fill('CAN209');page.locator('input[value="3.125"]').check()
@@ -208,13 +215,10 @@ class FullStackBrowserTests(unittest.TestCase):
                     self.assertEqual(verify_pdf(expected,2,300),2)
                     self.assertEqual(list(output.rglob('*.pdf')),[expected])
                     self.assertEqual(list((root/'runtime').rglob('*.png')),[])
-                    self.assertEqual(jobs.job_browser,'edge')
-                    self.assertEqual(BrowserPreferences(root,lambda:{'edge':edge}).require(),'edge')
-                    if os.environ.get('PAPERFORGE_CAPTURE_REVIEW') == '1':
-                        page.locator('#message').evaluate("node => node.textContent = '合成网站验收：真实 Edge、后台进程与 PDF 文件，不代表学校下载结果。'")
-                        page.screenshot(path=str(PROJECT_ROOT/'.impeccable/review/compat-success.png'),full_page=True)
+                    self.assertEqual(jobs.job_browser,browser_id)
+                    self.assertEqual(BrowserPreferences(root,lambda:{browser_id:executable}).require(),browser_id)
                     # Restoring Chrome availability hides all fallback controls.
-                    browsers.detector=lambda:{'chrome':'installed-chrome','edge':edge}
+                    browsers.detector=lambda:{'chrome':executable}
                     expect(page.locator('#browser-fallback')).to_be_hidden()
                     browser.close()
             finally:

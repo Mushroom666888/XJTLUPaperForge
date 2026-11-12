@@ -54,6 +54,8 @@ def choose_directory(initial):
         env=dict(os.environ, PYTHONUTF8='1'), creationflags=flags,
     )
     if result.returncode:
+        if result.stderr.startswith('PAPERFORGE_PICKER_ERROR:'):
+            raise RuntimeError(result.stderr.split(':', 1)[1].strip())
         raise RuntimeError('系统文件夹选择器未能打开，请稍后重试。')
     try:
         return json.loads(result.stdout)['path']

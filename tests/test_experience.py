@@ -227,11 +227,11 @@ class OutputApiTests(unittest.TestCase):
         result = self.post('/api/output/select', {'path':str(self.root/'injected')})
         self.assertTrue(result['changed'])
         self.assertEqual(self.jobs.snapshot()['output_dir'], str(self.custom))
-        with patch('app.os.startfile', create=True) as open_folder:
+        with patch('app.open_directory') as open_folder:
             self.post('/api/open-output');open_folder.assert_called_once_with(str(self.custom))
         previous = self.root/'previous'; previous.mkdir()
         self.jobs.update(job_output_dir=str(previous))
-        with patch('app.os.startfile', create=True) as open_folder:
+        with patch('app.open_directory') as open_folder:
             self.post('/api/open-output', {'job':True});open_folder.assert_called_once_with(str(previous))
         self.assertFalse((self.root/'injected').exists())
 

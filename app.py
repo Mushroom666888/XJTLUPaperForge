@@ -20,6 +20,7 @@ from output_preferences import OutputPreferences, choose_directory, validate_dir
 from task_events import PREFIX, TaskCancelled
 from browser_config import BrowserPreferences, NAMES
 from instance_lock import workbench_lock
+from platform_support import open_directory
 
 APP_NAME = 'XJTLUPaperForge'
 COURSE_RE = re.compile(r'[A-Z]{3}\d{3}[A-Z]{0,2}')
@@ -379,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
                     courses, _ = validate_export({'courses': [course]})
                     folder = course_directory(folder, courses[0])
                 folder = validate_directory(folder, create=True)
-                os.startfile(str(folder))
+                open_directory(str(folder))
             elif self.path == '/api/shutdown':
                 self.server.jobs.prepare_shutdown()
                 self.send(200, {'ok': True})

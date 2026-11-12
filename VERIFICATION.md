@@ -61,3 +61,11 @@ The workbench now displays “请去登录哦” only when a worker requests man
 An additional live check launched a fresh, isolated Chrome profile, opened the real school's password form through the normal login worker, and verified the reminder in the actual workbench at desktop and narrow widths. Cancellation cleared the reminder. No credentials were entered, no papers were downloaded, and the existing authenticated browser sessions were preserved. The temporary browser, runtime and profile were cleaned up after the check.
 
 After the login-reminder addition, the complete local suite passed **104 tests** in 120.308 seconds; dependency and Git whitespace checks passed again.
+
+## macOS / Linux preview port
+
+The `compat/macos-linux` branch adds platform adapters without changing search, school authentication, capture or PDF validation rules. Windows regression on 2026-11-12 ran **114 tests: 112 passed and 2 skipped** in 135.271 seconds. The skips require native macOS AppleScript compilation and POSIX process groups. Both installed Chrome and Edge executed the UI → API → worker → verified PDF flow using synthetic pages. Dependency consistency, Skill validation and workflow Python-step compilation passed.
+
+New adapter tests cover user-data locations, relative XDG fallback, missing Linux graphical sessions, native picker selection/cancellation/errors, path argument isolation, file-manager errors and process-group ownership. The existing output-persistence, invalid/unwritable-path, path-freezing, no-overwrite and PDF corruption checks remain in the full suite. Native chooser and file-manager behavior is mocked in these Windows adapter tests, not claimed as interactive macOS/Linux evidence.
+
+The GitHub workflow now assembles clean checkouts on Windows, macOS and Ubuntu and requires actual Chrome detection before running the suite. Results are recorded after the jobs complete. School SSO, real school downloads, native folder-dialog UX and packaged runtimes on macOS/Linux remain unverified. No self-contained Python distribution is included in this preview.
